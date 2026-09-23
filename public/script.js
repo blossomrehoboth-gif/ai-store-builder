@@ -16,6 +16,21 @@ const storePreview = document.getElementById("store-preview");
 
 let selectedTone = "Premium";
 let loading = false;
+let currentStore = null;
+
+const shopDomainInput = document.getElementById("shop-domain");
+const publishBtn = document.getElementById("publish-btn");
+const publishLabel = document.getElementById("publish-label");
+const publishStatus = document.getElementById("publish-status");
+
+// If we just came back from a successful Shopify install, remember the shop.
+const params = new URLSearchParams(window.location.search);
+if (params.get("shop")) {
+  shopDomainInput.value = params.get("shop");
+}
+if (params.get("connected") === "1") {
+  publishStatus.textContent = "Connected to " + params.get("shop") + ". Generate a store, then publish it below.";
+}
 
 toneGroup.addEventListener("click", (e) => {
   const btn = e.target.closest(".tone-btn");
@@ -71,6 +86,7 @@ async function generateStore() {
     }
 
     renderStore(data);
+    currentStore = data;
     postActions.hidden = false;
   } catch (err) {
     errorMsg.textContent =
@@ -142,3 +158,47 @@ function escapeHtml(str) {
   div.textContent = str ?? "";
   return div.innerHTML;
 }
+
+publishBtn.addEventListener("click", async () => {
+  const shop = shopDomainInput.value.trim();
+
+  if (!currentStore) {
+    publishStatus.textContent = "Generate a store first.";
+    return;
+  }
+  if (!shop || !shop.endsWith(".myshopify.com")) {
+    publishStatus.textContent = "Enter a valid *.myshopify.com domain above.";
+    return;
+  }
+
+  publishBtn.disabled = true;
+  publishLabel.textContent = "Publishing...";
+  publishStatus.textContent = "";
+
+  try {
+    const response = await fetch("/api/publish", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ shop, concept: currentStore }),
+    });
+    const data = await response.json();
+
+    if (!response.ok || data.error) {
+      throw new Error(data.error || "Publish failed.");
+    }
+
+    const succeeded = (data.results || []).filter((r) => r.ok).length;
+    const failed = (data.results || []).filter((r) => !r.ok);
+    let msg = `Published ${succeeded} product${succeeded === 1 ? "" : "s"} to ${shop}.`;
+    if (failed.length) {
+      msg += ` ${failed.length} failed: ` + failed.map((f) => `${f.name} (${f.error})`).join("; ");
+    }
+    publishStatus.textContent = msg;
+  } catch (err) {
+    publishStatus.textContent =
+      "Couldn't publish: " + err.message + ". Make sure you installed the app on this store first.";
+  } finally {
+    publishBtn.disabled = false;
+    publishLabel.textContent = "Publish to Shopify";
+  }
+});

@@ -57,9 +57,9 @@
     </div>
 
     <p class="footnote">
-      This calls Groq (via a small PHP backend) to draft a name, copy, and three
-      sample products. Nothing here is saved — treat it as a first draft to edit
-      and connect to real products afterward.
+      This calls Groq to draft a name, copy, and three sample products.
+      Nothing here is saved — treat it as a first draft to edit and connect
+      to real products afterward.
     </p>
   </aside>
 
@@ -92,6 +92,18 @@
         <div id="ad-box" class="ad-box" hidden>
           <p class="ad-label">Ad idea</p>
           <p id="ad-line" class="ad-line"></p>
+        </div>
+
+        <div id="publish-box" class="ad-box">
+          <p class="ad-label">Publish to Shopify</p>
+          <label class="field" style="margin-bottom: 8px;">
+            <span>Your store's .myshopify.com domain</span>
+            <input type="text" id="shop-domain" placeholder="yourstore.myshopify.com" />
+          </label>
+          <button type="button" id="publish-btn" class="generate-btn">
+            <span id="publish-label">Publish to Shopify</span>
+          </button>
+          <p id="publish-status" class="footnote" style="margin-top: 8px;"></p>
         </div>
       </div>
     </div>

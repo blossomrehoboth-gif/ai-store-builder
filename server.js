@@ -162,7 +162,7 @@ app.get('/auth/callback', async (req, res) => {
 
     shopTokens.set(shop, data.access_token);
     console.log('Connected shop:', shop);
-    res.send(`Connected to ${shop}! You can close this page.`);
+    res.redirect(`/?shop=${encodeURIComponent(shop)}&connected=1`);
   } catch (err) {
     console.error(err);
     res.status(500).send('Something went wrong.');
