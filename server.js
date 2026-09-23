@@ -170,6 +170,97 @@ app.get('/auth/callback', async (req, res) => {
 });
 // ---------- end Shopify install / OAuth ----------
 
+// ---------- Publish generated concept to Shopify ----------
+app.post('/api/publish', async (req, res) => {
+  try {
+    const { shop, concept } = req.body;
+    if (!validShop(shop)) {
+      return res.status(400).json({ error: 'Invalid shop.' });
+    }
+    const token = shopTokens.get(shop);
+    if (!token) {
+      return res.status(401).json({ error: 'This store is not connected. Please reinstall the app.' });
+    }
+    if (!concept || !Array.isArray(concept.products) || concept.products.length === 0) {
+      return res.status(400).json({ error: 'Missing store concept or products to publish.' });
+    }
+
+    const apiVersion = '2024-10';
+    const graphqlUrl = `https://${shop}/admin/api/${apiVersion}/graphql.json`;
+
+    async function shopifyGraphQL(query, variables) {
+      const r = await fetch(graphqlUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Shopify-Access-Token': token,
+        },
+        body: JSON.stringify({ query, variables }),
+      });
+      return r.json();
+    }
+
+    const results = [];
+
+    for (const p of concept.products) {
+      // 1. Create the product (title + description)
+      const createData = await shopifyGraphQL(
+        `mutation productCreate($input: ProductInput!) {
+          productCreate(input: $input) {
+            product {
+              id
+              title
+              variants(first: 1) { edges { node { id } } }
+            }
+            userErrors { field message }
+          }
+        }`,
+        {
+          input: {
+            title: p.name,
+            descriptionHtml: p.description || '',
+            vendor: concept.storeName || 'AI Store Builder',
+          },
+        }
+      );
+
+      const createErrors = createData.data?.productCreate?.userErrors;
+      if (createErrors && createErrors.length) {
+        results.push({ name: p.name, ok: false, error: createErrors.map((e) => e.message).join(', ') });
+        continue;
+      }
+
+      const product = createData.data?.productCreate?.product;
+      const variantId = product?.variants?.edges?.[0]?.node?.id;
+
+      // 2. Set the price on the product's default variant
+      if (variantId && p.price) {
+        const priceNumber = String(p.price).replace(/[^0-9.]/g, '');
+        await shopifyGraphQL(
+          `mutation productVariantsBulkUpdate($productId: ID!, $variants: [ProductVariantsBulkInput!]!) {
+            productVariantsBulkUpdate(productId: $productId, variants: $variants) {
+              userErrors { field message }
+            }
+          }`,
+          {
+            productId: product.id,
+            variants: [{ id: variantId, price: priceNumber }],
+          }
+        );
+      }
+
+      results.push({ name: p.name, ok: true, id: product?.id });
+    }
+
+    res.json({ results });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Something went wrong publishing to Shopify.' });
+  }
+});
+// ---------- end publish ----------
+
 app.listen(PORT, () => {
   console.log(`Store Builder running at http://localhost:${PORT}`);
 });
+
