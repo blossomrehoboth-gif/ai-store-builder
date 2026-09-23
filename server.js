@@ -60,7 +60,7 @@ Return ONLY a JSON object, with no markdown fences and no commentary, matching e
         'Authorization': `Bearer ${GROQ_API_KEY}`
       },
       body: JSON.stringify({
-        model: 'llama-3.3-70b-versatile',
+        model: 'llama-3.1-8b-instant',
         max_tokens: 1000,
         messages: [{ role: 'user', content: prompt }],
         response_format: { type: 'json_object' }
