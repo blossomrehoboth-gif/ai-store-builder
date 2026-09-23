@@ -1,8 +1,10 @@
 // server.js — AI Store Builder backend
 //
 // Takes { product, audience, tone } from the frontend, asks Groq for a
-// store concept (name, tagline, hero copy, sample products, ad line),
-// and returns it as JSON. The Groq API key stays server-side only.
+// single-product storefront concept in a Shopify-style landing page
+// format (price + discount, bundle tiers, benefit checklist, urgency
+// banner, testimonial), and returns it as JSON. The Groq API key stays
+// server-side only.
 
 const express = require('express');
 const path = require('path');
@@ -29,7 +31,7 @@ app.post('/api/generate', async (req, res) => {
       return res.status(400).json({ error: 'A product or niche is required.' });
     }
 
-    const prompt = `You are building marketing copy and a storefront concept for a dropshipping seller.
+    const prompt = `You are building a single-product landing page for a dropshipping store, in the style of a high-converting Shopify product page (think: bold benefit checklist, tiered bundle pricing with a "most popular" option, urgency banner, a customer testimonial, and a money-back guarantee).
 
 Product or niche: ${product}
 Target audience: ${audience}
@@ -39,15 +41,24 @@ Return ONLY a JSON object, with no markdown fences and no commentary, matching e
 {
   "storeName": "short brandable store name, 1-3 words",
   "domainHint": "storename.com style lowercase slug, no spaces",
-  "tagline": "one line, under 8 words",
-  "heroHeadline": "a punchy headline for the store's hero section, under 12 words",
-  "brandStory": "two sentences about why this store exists, written in the given tone",
-  "accentColor": "a single hex color that fits the tone and product, e.g. #7A5CFA",
-  "products": [
-    {"name": "product name", "description": "one sentence, under 20 words", "price": "price like $24.99"},
-    {"name": "product name", "description": "one sentence, under 20 words", "price": "price like $24.99"},
-    {"name": "product name", "description": "one sentence, under 20 words", "price": "price like $24.99"}
+  "accentColor": "a single hex color that fits the tone and product, e.g. #1D4ED8",
+  "imageQuery": "2-4 word plain-English search term for a photo of this exact product, e.g. 'wireless earbuds case'",
+  "productName": "the flagship product's name, under 6 words",
+  "productTagline": "one bold marketing line about the product, under 16 words, in the style of 'The #1 alternative for people who are done with X'",
+  "rating": "a number between 4.5 and 5.0, one decimal, as a string, e.g. '4.8'",
+  "reviewsLine": "short social proof line, e.g. 'Trusted by 50,000+ customers'",
+  "price": "price like $59.90",
+  "originalPrice": "a higher price like $79.90",
+  "discountPercent": "like 25%",
+  "benefits": ["short benefit phrase", "short benefit phrase", "short benefit phrase", "short benefit phrase"],
+  "bundleOffers": [
+    {"label": "1 ITEM", "price": "price like $59.90", "originalPrice": "higher price", "note": "e.g. 25% OFF", "popular": false},
+    {"label": "BUY 2 GET 1 FREE", "price": "price", "originalPrice": "higher price", "note": "e.g. 50% OFF + FREE Shipping", "popular": true},
+    {"label": "BUY 3 GET 2 FREE", "price": "price", "originalPrice": "higher price", "note": "e.g. 57% OFF + FREE Gift", "popular": false}
   ],
+  "urgencyText": "short urgency line, e.g. 'Offer ending soon — Limited stock'",
+  "guarantee": "e.g. '30-Day Money-Back Guarantee'",
+  "testimonial": {"name": "First name + last initial", "rating": 5, "quote": "a short, specific, believable customer quote, under 25 words"},
   "adLine": "one short ad headline for a social ad, under 10 words"
 }`;
 
@@ -59,9 +70,8 @@ Return ONLY a JSON object, with no markdown fences and no commentary, matching e
       },
       body: JSON.stringify({
         model: 'openai/gpt-oss-120b',
-        max_tokens: 1000,
+        max_tokens: 1500,
         messages: [{ role: 'user', content: prompt }],
-        // Groq's native JSON mode guarantees a parseable JSON object back.
         response_format: { type: 'json_object' }
       })
     });
