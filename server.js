@@ -62,8 +62,7 @@ Return ONLY a JSON object, with no markdown fences and no commentary, matching e
       body: JSON.stringify({
         model: 'openai/gpt-oss-120b',
         max_tokens: 1000,
-        messages: [{ role: 'user', content: prompt }],
-        response_format: { type: 'json_object' }
+        messages: [{ role: 'user', content: prompt }]
       })
     });
 
@@ -75,13 +74,25 @@ Return ONLY a JSON object, with no markdown fences and no commentary, matching e
 
     const data = await response.json();
     const text = data.choices?.[0]?.message?.content ?? '';
-    const cleaned = text.replace(/```json|```/g, '').trim();
+    let cleaned = text.replace(/```json|```/g, '').trim();
 
+    // Some models add reasoning text before/after the JSON object.
+    // Fall back to grabbing just the {...} portion if a direct parse fails.
     let parsed;
     try {
       parsed = JSON.parse(cleaned);
     } catch (e) {
-      return res.status(502).json({ error: 'Could not parse the AI response as JSON.' });
+      const start = cleaned.indexOf('{');
+      const end = cleaned.lastIndexOf('}');
+      if (start !== -1 && end !== -1 && end > start) {
+        try {
+          parsed = JSON.parse(cleaned.slice(start, end + 1));
+        } catch (e2) {
+          return res.status(502).json({ error: 'Could not parse the AI response as JSON.' });
+        }
+      } else {
+        return res.status(502).json({ error: 'Could not parse the AI response as JSON.' });
+      }
     }
 
     res.json(parsed);
