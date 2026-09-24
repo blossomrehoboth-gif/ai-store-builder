@@ -271,7 +271,38 @@ app.post('/api/publish', async (req, res) => {
 });
 // ---------- end publish ----------
 
+// ---------- AliExpress product lookup ----------
+app.get('/api/aliexpress/:itemId', async (req, res) => {
+  try {
+    const { itemId } = req.params;
+    const url = `https://aliexpress-datahub.p.rapidapi.com/item_detail?itemId=${itemId}&region=US&currency=USD&locale=en_US`;
+
+    const response = await fetch(url, {
+      headers: {
+        'x-rapidapi-key': process.env.ALIEXPRESS_API_KEY,
+        'x-rapidapi-host': 'aliexpress-datahub.p.rapidapi.com',
+      },
+    });
+    const data = await response.json();
+
+    if (!data.result || data.result.status?.data === 'error') {
+      return res.status(404).json({ error: 'Product not found. Check the item ID.' });
+    }
+
+    const item = data.result.item;
+    res.json({
+      title: item?.title,
+      price: item?.sku?.def?.promotionPrice || item?.sku?.def?.price,
+      images: item?.images,
+      description: item?.title,
+    });
+  } catch (err) {
+    console.error('AliExpress lookup error:', err);
+    res.status(500).json({ error: 'Could not fetch product from AliExpress.' });
+  }
+});
+// ---------- end AliExpress product lookup ----------
+
 app.listen(PORT, () => {
   console.log(`Store Builder running at http://localhost:${PORT}`);
 });
-
