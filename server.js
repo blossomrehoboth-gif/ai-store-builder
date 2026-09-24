@@ -385,6 +385,79 @@ app.get('/api/aliexpress-search', async (req, res) => {
 });
 // ---------- end AliExpress product search ----------
 
+// ---------- TEMPORARY test: import one AliExpress product into a connected store ----------
+app.get('/api/test-import', async (req, res) => {
+  try {
+    const { shop, itemId } = req.query;
+    if (!validShop(shop)) return res.status(400).json({ error: 'Invalid shop.' });
+    const token = shopTokens.get(shop);
+    if (!token) return res.status(401).json({ error: 'Store not connected. Open the install link again.' });
+    if (!itemId) return res.status(400).json({ error: 'Missing itemId.' });
+    const key = requireAliexpressKey(res);
+    if (!key) return;
+
+    const ali = await fetch(
+      `https://aliexpress-datahub.p.rapidapi.com/item_detail_6?itemId=${encodeURIComponent(itemId)}&region=US&currency=USD&locale=en_US`,
+      { headers: { 'x-rapidapi-key': key, 'x-rapidapi-host': 'aliexpress-datahub.p.rapidapi.com' } }
+    );
+    if (!ali.ok) return res.status(502).json({ error: 'AliExpress lookup failed.' });
+
+    const data = await ali.json();
+    const src = data.result || data;
+    const title = extractTitle(src);
+    const priceMatch = String(extractPrice(src) || '').match(/[0-9]+(\.[0-9]+)?/);
+    const price = priceMatch ? priceMatch[0] : null;
+    const images = extractImages(src)
+      .map((u) => (u.startsWith('//') ? 'https:' + u : u))
+      .slice(0, 6);
+    if (!title) return res.status(502).json({ error: 'Could not read product details.' });
+
+    async function gql(query, variables) {
+      const r = await fetch(`https://${shop}/admin/api/2024-10/graphql.json`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Shopify-Access-Token': token },
+        body: JSON.stringify({ query, variables }),
+      });
+      return r.json();
+    }
+
+    const created = await gql(
+      `mutation productCreate($input: ProductInput!, $media: [CreateMediaInput!]) {
+        productCreate(input: $input, media: $media) {
+          product { id title variants(first: 1) { edges { node { id } } } }
+          userErrors { field message }
+        }
+      }`,
+      {
+        input: { title, status: 'DRAFT' },
+        media: images.map((u) => ({ originalSource: u, mediaContentType: 'IMAGE', alt: title })),
+      }
+    );
+
+    const errs = created.data?.productCreate?.userErrors;
+    if (errs && errs.length) return res.status(400).json({ error: errs.map((e) => e.message).join(', ') });
+
+    const product = created.data?.productCreate?.product;
+    const variantId = product?.variants?.edges?.[0]?.node?.id;
+    if (variantId && price) {
+      await gql(
+        `mutation productVariantsBulkUpdate($productId: ID!, $variants: [ProductVariantsBulkInput!]!) {
+          productVariantsBulkUpdate(productId: $productId, variants: $variants) {
+            userErrors { field message }
+          }
+        }`,
+        { productId: product.id, variants: [{ id: variantId, price }] }
+      );
+    }
+
+    res.json({ ok: true, title, price, imagesSent: images.length, productId: product?.id });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Test import failed.', detail: String(err) });
+  }
+});
+// ---------- end TEMPORARY test ----------
+
 app.listen(PORT, () => {
   console.log(`Store Builder running at http://localhost:${PORT}`);
 });
