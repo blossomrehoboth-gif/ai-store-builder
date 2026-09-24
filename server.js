@@ -316,7 +316,7 @@ app.get('/api/aliexpress/:itemId', async (req, res) => {
 
   try {
     const { itemId } = req.params;
-    const url = `https://aliexpress-datahub.p.rapidapi.com/item_detail?itemId=${itemId}&region=US&currency=USD&locale=en_US`;
+    const url = `https://aliexpress-datahub.p.rapidapi.com/item_detail_6?itemId=${itemId}&region=US&currency=USD&locale=en_US`;
 
     const response = await fetch(url, {
       headers: {
