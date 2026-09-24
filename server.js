@@ -214,10 +214,37 @@ app.post('/api/publish', async (req, res) => {
     const results = [];
 
     for (const p of concept.products) {
-      // 1. Create the product (title + description)
+      // 1a. Try to find a matching real AliExpress product, for photos
+      let images = [];
+      try {
+        const key = process.env.ALIEXPRESS_API_KEY;
+        if (key) {
+          const searchUrl = `https://aliexpress-datahub.p.rapidapi.com/item_search?q=${encodeURIComponent(p.name)}&page=1&sort=default`;
+          const searchRes = await fetch(searchUrl, {
+            headers: { 'x-rapidapi-key': key, 'x-rapidapi-host': 'aliexpress-datahub.p.rapidapi.com' },
+          });
+          if (searchRes.ok) {
+            const searchData = await searchRes.json();
+            const rawItems = searchData.result?.resultList || searchData.resultList || searchData.items || [];
+            const first = rawItems[0];
+            if (first) {
+              const item = first?.item ? first : { item: first };
+              images = extractImages(item)
+                .map((u) => (u.startsWith('//') ? 'https:' + u : u))
+                .slice(0, 6);
+            }
+          } else {
+            console.log('AliExpress search HTTP error for', p.name, searchRes.status);
+          }
+        }
+      } catch (e) {
+        console.error('AliExpress match failed for', p.name, e);
+      }
+
+      // 1b. Create the product (title + description + photos if found)
       const createData = await shopifyGraphQL(
-        `mutation productCreate($input: ProductInput!) {
-          productCreate(input: $input) {
+        `mutation productCreate($input: ProductInput!, $media: [CreateMediaInput!]) {
+          productCreate(input: $input, media: $media) {
             product {
               id
               title
@@ -232,6 +259,7 @@ app.post('/api/publish', async (req, res) => {
             descriptionHtml: p.description || '',
             vendor: concept.storeName || 'AI Store Builder',
           },
+          media: images.map((u) => ({ originalSource: u, mediaContentType: 'IMAGE', alt: p.name })),
         }
       );
 
