@@ -272,12 +272,50 @@ app.post('/api/publish', async (req, res) => {
 // ---------- end publish ----------
 
 // ---------- AliExpress product lookup ----------
+// Pulls product data via a third-party RapidAPI service (aliexpress-datahub),
+// not an official AliExpress API. Returns a clean { title, price, images }
+// shape instead of the raw provider response.
+function requireAliexpressKey(res) {
+  const key = process.env.ALIEXPRESS_API_KEY;
+  if (!key) {
+    res.status(500).json({ error: 'Server is missing ALIEXPRESS_API_KEY.' });
+    return null;
+  }
+  return key;
+}
+
+// Pull a usable image list out of whatever shape the provider sends back.
+function extractImages(item) {
+  const raw =
+    item?.item?.images ||
+    item?.images ||
+    item?.item?.image ||
+    item?.item?.itemImages ||
+    [];
+  const list = Array.isArray(raw) ? raw : [raw];
+  return list.filter(Boolean).map(String);
+}
+
+function extractTitle(item) {
+  return item?.item?.title || item?.title || item?.item?.subject || null;
+}
+
+function extractPrice(item) {
+  const price =
+    item?.item?.sku?.def?.promotionPrice ||
+    item?.item?.sku?.def?.price ||
+    item?.item?.price ||
+    item?.price ||
+    null;
+  return price ? String(price) : null;
+}
+
 app.get('/api/aliexpress/:itemId', async (req, res) => {
+  const key = requireAliexpressKey(res);
+  if (!key) return;
+
   try {
     const { itemId } = req.params;
-    const key = process.env.ALIEXPRESS_API_KEY || '';
-    console.log('ALIEXPRESS_API_KEY present:', !!key, 'length:', key.length, 'starts with:', key.slice(0, 6), 'ends with:', key.slice(-4));
-
     const url = `https://aliexpress-datahub.p.rapidapi.com/item_detail?itemId=${itemId}&region=US&currency=USD&locale=en_US`;
 
     const response = await fetch(url, {
@@ -286,10 +324,21 @@ app.get('/api/aliexpress/:itemId', async (req, res) => {
         'x-rapidapi-host': 'aliexpress-datahub.p.rapidapi.com',
       },
     });
-    const data = await response.json();
 
-    // TEMPORARY: return the raw response so we can see what's actually happening
-    return res.json({ debug_status: response.status, debug_key_length: key.length, debug_raw: data });
+    if (!response.ok) {
+      return res.status(502).json({ error: 'AliExpress lookup failed.' });
+    }
+
+    const data = await response.json();
+    const title = extractTitle(data.result || data);
+    const price = extractPrice(data.result || data);
+    const images = extractImages(data.result || data);
+
+    if (!title && images.length === 0) {
+      return res.status(502).json({ error: 'Could not read product details for that item.' });
+    }
+
+    res.json({ itemId, title, price, images });
   } catch (err) {
     res.status(500).json({ error: 'Could not fetch product from AliExpress.', detail: String(err) });
   }
@@ -298,19 +347,38 @@ app.get('/api/aliexpress/:itemId', async (req, res) => {
 
 // ---------- AliExpress product search ----------
 app.get('/api/aliexpress-search', async (req, res) => {
+  const key = requireAliexpressKey(res);
+  if (!key) return;
+
   try {
     const q = req.query.q || 'phone charger';
     const url = `https://aliexpress-datahub.p.rapidapi.com/item_search?q=${encodeURIComponent(q)}&page=1&sort=default`;
 
     const response = await fetch(url, {
       headers: {
-        'x-rapidapi-key': process.env.ALIEXPRESS_API_KEY,
+        'x-rapidapi-key': key,
         'x-rapidapi-host': 'aliexpress-datahub.p.rapidapi.com',
       },
     });
-    const data = await response.json();
 
-    return res.json({ debug_status: response.status, debug_raw: data });
+    if (!response.ok) {
+      return res.status(502).json({ error: 'AliExpress search failed.' });
+    }
+
+    const data = await response.json();
+    const rawItems = data.result?.resultList || data.resultList || data.items || [];
+
+    const items = rawItems.map((entry) => {
+      const item = entry?.item ? entry : { item: entry };
+      return {
+        itemId: item.item?.itemId || entry.itemId || null,
+        title: extractTitle(item),
+        price: extractPrice(item),
+        images: extractImages(item),
+      };
+    });
+
+    res.json({ query: q, items });
   } catch (err) {
     res.status(500).json({ error: 'Search failed.', detail: String(err) });
   }
