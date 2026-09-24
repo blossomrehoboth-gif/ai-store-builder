@@ -296,6 +296,28 @@ app.get('/api/aliexpress/:itemId', async (req, res) => {
 });
 // ---------- end AliExpress product lookup ----------
 
+// ---------- AliExpress product search ----------
+app.get('/api/aliexpress-search', async (req, res) => {
+  try {
+    const q = req.query.q || 'phone charger';
+    const url = `https://aliexpress-datahub.p.rapidapi.com/item_search?q=${encodeURIComponent(q)}&page=1&sort=default`;
+
+    const response = await fetch(url, {
+      headers: {
+        'x-rapidapi-key': process.env.ALIEXPRESS_API_KEY,
+        'x-rapidapi-host': 'aliexpress-datahub.p.rapidapi.com',
+      },
+    });
+    const data = await response.json();
+
+    return res.json({ debug_status: response.status, debug_raw: data });
+  } catch (err) {
+    res.status(500).json({ error: 'Search failed.', detail: String(err) });
+  }
+});
+// ---------- end AliExpress product search ----------
+
 app.listen(PORT, () => {
   console.log(`Store Builder running at http://localhost:${PORT}`);
 });
+         
