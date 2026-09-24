@@ -275,18 +275,21 @@ app.post('/api/publish', async (req, res) => {
 app.get('/api/aliexpress/:itemId', async (req, res) => {
   try {
     const { itemId } = req.params;
+    const key = process.env.ALIEXPRESS_API_KEY || '';
+    console.log('ALIEXPRESS_API_KEY present:', !!key, 'length:', key.length, 'starts with:', key.slice(0, 6), 'ends with:', key.slice(-4));
+
     const url = `https://aliexpress-datahub.p.rapidapi.com/item_detail?itemId=${itemId}&region=US&currency=USD&locale=en_US`;
 
     const response = await fetch(url, {
       headers: {
-        'x-rapidapi-key': process.env.ALIEXPRESS_API_KEY,
+        'x-rapidapi-key': key,
         'x-rapidapi-host': 'aliexpress-datahub.p.rapidapi.com',
       },
     });
     const data = await response.json();
 
     // TEMPORARY: return the raw response so we can see what's actually happening
-    return res.json({ debug_status: response.status, debug_raw: data });
+    return res.json({ debug_status: response.status, debug_key_length: key.length, debug_raw: data });
   } catch (err) {
     res.status(500).json({ error: 'Could not fetch product from AliExpress.', detail: String(err) });
   }
