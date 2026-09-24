@@ -285,20 +285,10 @@ app.get('/api/aliexpress/:itemId', async (req, res) => {
     });
     const data = await response.json();
 
-    if (!data.result || data.result.status?.data === 'error') {
-      return res.status(404).json({ error: 'Product not found. Check the item ID.' });
-    }
-
-    const item = data.result.item;
-    res.json({
-      title: item?.title,
-      price: item?.sku?.def?.promotionPrice || item?.sku?.def?.price,
-      images: item?.images,
-      description: item?.title,
-    });
+    // TEMPORARY: return the raw response so we can see what's actually happening
+    return res.json({ debug_status: response.status, debug_raw: data });
   } catch (err) {
-    console.error('AliExpress lookup error:', err);
-    res.status(500).json({ error: 'Could not fetch product from AliExpress.' });
+    res.status(500).json({ error: 'Could not fetch product from AliExpress.', detail: String(err) });
   }
 });
 // ---------- end AliExpress product lookup ----------
@@ -306,3 +296,4 @@ app.get('/api/aliexpress/:itemId', async (req, res) => {
 app.listen(PORT, () => {
   console.log(`Store Builder running at http://localhost:${PORT}`);
 });
+  
