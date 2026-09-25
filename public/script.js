@@ -85,19 +85,22 @@ async function generateStore() {
       throw new Error(data.error || "Request failed");
     }
 
-    let heroImage = null;
+    let heroImages = [];
     try {
       const imgRes = await fetch(`/api/aliexpress-search?q=${encodeURIComponent(product)}`);
       const imgData = await imgRes.json();
       const withImage = (imgData.items || []).find((it) => it.images && it.images.length > 0);
       if (withImage) {
-        heroImage = withImage.images[0].startsWith("//") ? "https:" + withImage.images[0] : withImage.images[0];
+        heroImages = withImage.images
+          .filter(Boolean)
+          .map((u) => (u.startsWith("//") ? "https:" + u : u))
+          .slice(0, 6);
       }
     } catch (e) {
       console.warn("Hero image fetch failed:", e);
     }
 
-    renderStore(data, heroImage);
+    renderStore(data, heroImages);
     data.sourceNiche = product;
     currentStore = data;
     postActions.hidden = false;
@@ -130,7 +133,39 @@ productInput.addEventListener("input", () => {
   generateBtn.disabled = !productInput.value.trim();
 });
 
-function renderStore(store, heroImage) {
+function setHeroImage(url) {
+  const heroSection = document.getElementById("hero-section");
+  heroSection.style.backgroundImage = `url(${url})`;
+  heroSection.style.backgroundSize = "cover";
+  heroSection.style.backgroundPosition = "center";
+}
+
+function renderHeroThumbs(images) {
+  const thumbsBox = document.getElementById("hero-thumbs");
+  thumbsBox.innerHTML = "";
+
+  if (!images || images.length < 2) {
+    thumbsBox.hidden = true;
+    return;
+  }
+
+  images.forEach((url, i) => {
+    const img = document.createElement("img");
+    img.src = url;
+    img.className = "hero-thumb" + (i === 0 ? " active" : "");
+    img.alt = "Product photo " + (i + 1);
+    img.addEventListener("click", () => {
+      setHeroImage(url);
+      thumbsBox.querySelectorAll(".hero-thumb").forEach((t) => t.classList.remove("active"));
+      img.classList.add("active");
+    });
+    thumbsBox.appendChild(img);
+  });
+
+  thumbsBox.hidden = false;
+}
+
+function renderStore(store, heroImages) {
   document.getElementById("domain-hint").textContent = store.domainHint || "yourstore.com";
   document.getElementById("store-name").textContent = store.storeName || "";
   document.getElementById("store-name").style.color = store.accentColor || "#8C6A30";
@@ -138,12 +173,10 @@ function renderStore(store, heroImage) {
   document.getElementById("store-hero").textContent = store.heroHeadline || "";
   document.getElementById("store-story").textContent = store.brandStory || "";
 
-  const heroSection = document.getElementById("hero-section");
-  if (heroImage) {
-    heroSection.style.backgroundImage = `url(${heroImage})`;
-    heroSection.style.backgroundSize = "cover";
-    heroSection.style.backgroundPosition = "center";
+  if (heroImages && heroImages.length > 0) {
+    setHeroImage(heroImages[0]);
   }
+  renderHeroThumbs(heroImages);
 
   const productList = document.getElementById("product-list");
   productList.innerHTML = "";
@@ -222,4 +255,4 @@ publishBtn.addEventListener("click", async () => {
     publishLabel.textContent = "Publish to Shopify";
   }
 });
-      
+    
