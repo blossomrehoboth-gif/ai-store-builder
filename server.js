@@ -222,7 +222,7 @@ app.post('/api/publish', async (req, res) => {
         const key = process.env.ALIEXPRESS_API_KEY;
         if (key) {
           const searchQuery = searchNiche || p.name;
-          const searchUrl = `https://aliexpress-datahub.p.rapidapi.com/item_search?q=${encodeURIComponent(searchQuery)}&page=1&sort=default`;
+          const searchUrl = `https://aliexpress-datahub.p.rapidapi.com/item_search_2?q=${encodeURIComponent(searchQuery)}&page=1&sort=default`;
           const searchRes = await fetch(searchUrl, {
             headers: { 'x-rapidapi-key': key, 'x-rapidapi-host': 'aliexpress-datahub.p.rapidapi.com' },
           });
@@ -388,7 +388,7 @@ app.get('/api/aliexpress-search', async (req, res) => {
 
   try {
     const q = req.query.q || 'phone charger';
-    const url = `https://aliexpress-datahub.p.rapidapi.com/item_search?q=${encodeURIComponent(q)}&page=1&sort=default`;
+    const url = `https://aliexpress-datahub.p.rapidapi.com/item_search_2?q=${encodeURIComponent(q)}&page=1&sort=default`;
 
     const response = await fetch(url, {
       headers: {
