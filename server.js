@@ -226,12 +226,14 @@ app.post('/api/publish', async (req, res) => {
           if (searchRes.ok) {
             const searchData = await searchRes.json();
             const rawItems = searchData.result?.resultList || searchData.resultList || searchData.items || [];
+            console.log('AliExpress search for', JSON.stringify(p.name), '-> found', rawItems.length, 'raw items. Top-level keys:', Object.keys(searchData));
             const first = rawItems[0];
             if (first) {
               const item = first?.item ? first : { item: first };
               images = extractImages(item)
                 .map((u) => (u.startsWith('//') ? 'https:' + u : u))
                 .slice(0, 6);
+              console.log('Extracted', images.length, 'images for', p.name);
             }
           } else {
             console.log('AliExpress search HTTP error for', p.name, searchRes.status);
