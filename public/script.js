@@ -134,10 +134,7 @@ productInput.addEventListener("input", () => {
 });
 
 function setHeroImage(url) {
-  const heroSection = document.getElementById("hero-section");
-  heroSection.style.backgroundImage = `url(${url})`;
-  heroSection.style.backgroundSize = "cover";
-  heroSection.style.backgroundPosition = "center";
+  document.getElementById("hero-image").src = url;
 }
 
 function renderHeroThumbs(images) {
@@ -255,4 +252,3 @@ publishBtn.addEventListener("click", async () => {
     publishLabel.textContent = "Publish to Shopify";
   }
 });
-    

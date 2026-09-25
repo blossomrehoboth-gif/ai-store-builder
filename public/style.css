@@ -300,62 +300,30 @@ body {
 
 .store-cart { font-size: 1.1rem; }
 
-/* Hero banner */
-.hero-section {
-  position: relative;
-  min-height: 20rem;
-  background-size: cover;
-  background-position: center;
-  background-color: #d9cfbb; /* fallback while image loads */
+/* Product image gallery — plain photo, no text on top */
+.gallery-section {
+  background: #EFE8D8;
+  min-height: 18rem;
   display: flex;
-  align-items: flex-end;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
 }
 
 @media (min-width: 768px) {
-  .hero-section { min-height: 26rem; }
+  .gallery-section { min-height: 24rem; }
 }
 
-.hero-overlay {
+.gallery-main-image {
   width: 100%;
-  padding: 2rem 1.5rem;
-  background: linear-gradient(to top, rgba(0, 0, 0, 0.65), rgba(0, 0, 0, 0.05));
-  color: #fff;
+  height: 100%;
+  min-height: 18rem;
+  object-fit: cover;
+  display: block;
 }
 
 @media (min-width: 768px) {
-  .hero-overlay { padding: 2.5rem; }
-}
-
-.store-tagline {
-  font-size: 0.85rem;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  opacity: 0.85;
-  margin: 0 0 0.5rem;
-}
-
-.store-hero {
-  font-family: var(--font-headline);
-  font-weight: 500;
-  font-size: 1.75rem;
-  line-height: 1.25;
-  margin: 0 0 1.25rem;
-  max-width: 30rem;
-}
-
-@media (min-width: 768px) {
-  .store-hero { font-size: 2.25rem; }
-}
-
-.shop-now-btn {
-  border: none;
-  border-radius: 4px;
-  padding: 10px 20px;
-  font-weight: 500;
-  font-family: var(--font-body);
-  cursor: default;
-  background: #fff;
-  color: var(--ink-on-paper);
+  .gallery-main-image { min-height: 24rem; }
 }
 
 .hero-thumbs {
@@ -380,6 +348,41 @@ body {
 
 .hero-thumb.active {
   border-color: var(--brass);
+}
+
+/* Tagline / headline — now sit plainly in the body, not over the photo */
+.store-tagline-plain {
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted-on-paper);
+  margin: 0 0 0.5rem;
+}
+
+.store-hero-plain {
+  font-family: var(--font-headline);
+  font-weight: 500;
+  font-size: 1.75rem;
+  line-height: 1.25;
+  margin: 0 0 1.25rem;
+  max-width: 30rem;
+  color: var(--ink-on-paper);
+}
+
+@media (min-width: 768px) {
+  .store-hero-plain { font-size: 2.25rem; }
+}
+
+.shop-now-btn {
+  border: none;
+  border-radius: 4px;
+  padding: 10px 20px;
+  font-weight: 500;
+  font-family: var(--font-body);
+  cursor: default;
+  background: var(--brass);
+  color: #fff;
+  margin-bottom: 2rem;
 }
 
 .store-body { padding: 2rem; }
@@ -468,5 +471,4 @@ body {
   font-family: var(--font-headline);
   font-size: 1.1rem;
   margin: 0;
-  }
-  
+}
