@@ -230,6 +230,9 @@ app.post('/api/publish', async (req, res) => {
             const searchData = await searchRes.json();
             const rawItems = searchData.result?.resultList || searchData.resultList || searchData.items || [];
             console.log('AliExpress search for', JSON.stringify(searchQuery), '(product:', JSON.stringify(p.name) + ') -> found', rawItems.length, 'raw items. Top-level keys:', Object.keys(searchData));
+            if (rawItems.length === 0) {
+              console.log('DEBUG raw searchData.result:', JSON.stringify(searchData.result).slice(0, 800));
+            }
             const first = rawItems[i] || rawItems[0];
             if (first) {
               const item = first?.item ? first : { item: first };
