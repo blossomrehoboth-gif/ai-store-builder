@@ -222,4 +222,4 @@ publishBtn.addEventListener("click", async () => {
     publishLabel.textContent = "Publish to Shopify";
   }
 });
-    
+      
