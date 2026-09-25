@@ -23,7 +23,6 @@ const publishBtn = document.getElementById("publish-btn");
 const publishLabel = document.getElementById("publish-label");
 const publishStatus = document.getElementById("publish-status");
 
-// If we just came back from a successful Shopify install, remember the shop.
 const params = new URLSearchParams(window.location.search);
 if (params.get("shop")) {
   shopDomainInput.value = params.get("shop");
@@ -60,6 +59,16 @@ startOverBtn.addEventListener("click", () => {
   emptyState.hidden = false;
 });
 
+// Deterministic-looking placeholder photos, used whenever the AliExpress
+// image search comes back empty (it's currently unreliable on their end).
+function placeholderImages(seed, count) {
+  const urls = [];
+  for (let i = 0; i < count; i++) {
+    urls.push(`https://picsum.photos/seed/${encodeURIComponent(seed)}-${i}/700/700`);
+  }
+  return urls;
+}
+
 async function generateStore() {
   const product = productInput.value.trim();
   if (!product || loading) return;
@@ -86,21 +95,35 @@ async function generateStore() {
     }
 
     let heroImages = [];
+    let productImages = [];
     try {
       const imgRes = await fetch(`/api/aliexpress-search?q=${encodeURIComponent(product)}`);
       const imgData = await imgRes.json();
-      const withImage = (imgData.items || []).find((it) => it.images && it.images.length > 0);
-      if (withImage) {
-        heroImages = withImage.images
-          .filter(Boolean)
-          .map((u) => (u.startsWith("//") ? "https:" + u : u))
-          .slice(0, 6);
-      }
+      const items = (imgData.items || []).filter((it) => it.images && it.images.length > 0);
+
+      const pool = items
+        .flatMap((it) => it.images)
+        .filter(Boolean)
+        .map((u) => (u.startsWith("//") ? "https:" + u : u));
+
+      heroImages = pool.slice(0, 6);
+      productImages = (data.products || []).map((_, i) =>
+        pool.length ? pool[(i + 1) % pool.length] : null
+      );
     } catch (e) {
-      console.warn("Hero image fetch failed:", e);
+      console.warn("Image fetch failed:", e);
     }
 
-    renderStore(data, heroImages);
+    // Fall back to placeholder photos if AliExpress gave us nothing.
+    if (heroImages.length === 0) {
+      heroImages = placeholderImages(product, 4);
+    }
+    if (productImages.length === 0 || productImages.every((u) => !u)) {
+      const fallback = placeholderImages(product + "-product", (data.products || []).length || 3);
+      productImages = (data.products || []).map((_, i) => fallback[i]);
+    }
+
+    renderStore(data, heroImages, productImages);
     data.sourceNiche = product;
     currentStore = data;
     postActions.hidden = false;
@@ -162,13 +185,23 @@ function renderHeroThumbs(images) {
   thumbsBox.hidden = false;
 }
 
-function renderStore(store, heroImages) {
+function renderStore(store, heroImages, productImages) {
   document.getElementById("domain-hint").textContent = store.domainHint || "yourstore.com";
   document.getElementById("store-name").textContent = store.storeName || "";
   document.getElementById("store-name").style.color = store.accentColor || "#8C6A30";
   document.getElementById("store-tagline").textContent = store.tagline || "";
   document.getElementById("store-hero").textContent = store.heroHeadline || "";
   document.getElementById("store-story").textContent = store.brandStory || "";
+
+  const ratingEl = document.getElementById("store-rating");
+  if (store.rating) {
+    const rounded = Math.round(parseFloat(store.rating));
+    const stars = "★".repeat(Math.max(1, Math.min(5, rounded))) + "☆".repeat(5 - Math.max(1, Math.min(5, rounded)));
+    ratingEl.textContent = `${stars}  Rated ${store.rating} out of 5${store.reviewsLine ? " by " + store.reviewsLine : ""}`;
+    ratingEl.hidden = false;
+  } else {
+    ratingEl.hidden = true;
+  }
 
   if (heroImages && heroImages.length > 0) {
     setHeroImage(heroImages[0]);
@@ -177,17 +210,19 @@ function renderStore(store, heroImages) {
 
   const productList = document.getElementById("product-list");
   productList.innerHTML = "";
-  (store.products || []).forEach((p) => {
-    const row = document.createElement("div");
-    row.className = "product-row";
-    row.innerHTML = `
-      <div>
+  (store.products || []).forEach((p, i) => {
+    const imgUrl = productImages && productImages[i];
+    const card = document.createElement("div");
+    card.className = "product-card";
+    card.innerHTML = `
+      ${imgUrl ? `<img class="product-card-image" src="${imgUrl}" alt="${escapeHtml(p.name)}" />` : `<div class="product-card-image"></div>`}
+      <div class="product-card-body">
         <p class="product-name">${escapeHtml(p.name)}</p>
         <p class="product-desc">${escapeHtml(p.description)}</p>
+        <p class="product-price" style="color:${store.accentColor || "#8C6A30"}">${escapeHtml(p.price)}</p>
       </div>
-      <p class="product-price" style="color:${store.accentColor || "#8C6A30"}">${escapeHtml(p.price)}</p>
     `;
-    productList.appendChild(row);
+    productList.appendChild(card);
   });
 
   const adBox = document.getElementById("ad-box");
