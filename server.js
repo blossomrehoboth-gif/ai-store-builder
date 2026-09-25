@@ -306,6 +306,22 @@ function extractImageUrls(node, found, depth) {
   }
 }
 
+// Pulls the real rating + sold count off the first result in
+// resultList, if present. Returns nulls (never fake numbers) when the
+// shape isn't what we expect, so the frontend can hide the line.
+function extractRatingAndSold(data) {
+  const firstItem = data?.result?.resultList?.[0]?.item;
+  if (!firstItem) return { rating: null, sold: null };
+
+  const rating = firstItem.averageStarRate != null ? parseFloat(firstItem.averageStarRate) : null;
+  const soldRaw = firstItem.sales != null ? parseInt(String(firstItem.sales).replace(/[^0-9]/g, ''), 10) : null;
+
+  return {
+    rating: Number.isFinite(rating) ? rating : null,
+    sold: Number.isFinite(soldRaw) ? soldRaw : null,
+  };
+}
+
 app.get('/api/aliexpress-search', async (req, res) => {
   try {
     const q = req.query.q || 'phone charger';
@@ -319,21 +335,26 @@ app.get('/api/aliexpress-search', async (req, res) => {
     });
 
     if (!response.ok) {
-      return res.json({ items: [] });
+      return res.json({ items: [], rating: null, sold: null });
     }
 
     const data = await response.json();
 
     if (data?.result?.status?.data === 'error') {
-      return res.json({ items: [] });
+      return res.json({ items: [], rating: null, sold: null });
     }
 
     const images = [];
     extractImageUrls(data, images, 0);
+    const { rating, sold } = extractRatingAndSold(data);
 
-    return res.json({ items: images.length ? [{ images }] : [] });
+    return res.json({
+      items: images.length ? [{ images }] : [],
+      rating,
+      sold,
+    });
   } catch (err) {
-    res.json({ items: [] });
+    res.json({ items: [], rating: null, sold: null });
   }
 });
 // ---------- end AliExpress product search ----------

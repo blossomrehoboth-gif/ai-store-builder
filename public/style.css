@@ -435,6 +435,12 @@ body {
 
 .product-name { font-weight: 500; margin: 0; }
 
+.product-rating {
+  color: #B8860B;
+  font-size: 0.8rem;
+  margin: 0.2rem 0 0;
+}
+
 .product-desc {
   color: var(--muted-on-paper);
   font-size: 0.85rem;

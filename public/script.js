@@ -96,6 +96,8 @@ async function generateStore() {
 
     let heroImages = [];
     let productImages = [];
+    let realRating = null;
+    let realSold = null;
     try {
       const imgRes = await fetch(`/api/aliexpress-search?q=${encodeURIComponent(product)}`);
       const imgData = await imgRes.json();
@@ -110,6 +112,8 @@ async function generateStore() {
       productImages = (data.products || []).map((_, i) =>
         pool.length ? pool[(i + 1) % pool.length] : null
       );
+      realRating = imgData.rating ?? null;
+      realSold = imgData.sold ?? null;
     } catch (e) {
       console.warn("Image fetch failed:", e);
     }
@@ -123,7 +127,7 @@ async function generateStore() {
       productImages = (data.products || []).map((_, i) => fallback[i]);
     }
 
-    renderStore(data, heroImages, productImages);
+    renderStore(data, heroImages, productImages, realRating, realSold);
     data.sourceNiche = product;
     currentStore = data;
     postActions.hidden = false;
@@ -185,7 +189,7 @@ function renderHeroThumbs(images) {
   thumbsBox.hidden = false;
 }
 
-function renderStore(store, heroImages, productImages) {
+function renderStore(store, heroImages, productImages, realRating, realSold) {
   document.getElementById("domain-hint").textContent = store.domainHint || "yourstore.com";
   document.getElementById("store-name").textContent = store.storeName || "";
   document.getElementById("store-name").style.color = store.accentColor || "#8C6A30";
@@ -212,12 +216,24 @@ function renderStore(store, heroImages, productImages) {
   productList.innerHTML = "";
   (store.products || []).forEach((p, i) => {
     const imgUrl = productImages && productImages[i];
+
+    // Real AliExpress data only — never a made-up number. If we don't
+    // have a real rating for this search, the line is simply omitted.
+    let ratingLine = "";
+    if (realRating != null) {
+      const rounded = Math.round(realRating);
+      const stars = "★".repeat(Math.max(1, Math.min(5, rounded))) + "☆".repeat(5 - Math.max(1, Math.min(5, rounded)));
+      const soldText = realSold != null ? ` · ${realSold} sold` : "";
+      ratingLine = `<p class="product-rating">${stars} ${realRating.toFixed(1)}${soldText}</p>`;
+    }
+
     const card = document.createElement("div");
     card.className = "product-card";
     card.innerHTML = `
       ${imgUrl ? `<img class="product-card-image" src="${imgUrl}" alt="${escapeHtml(p.name)}" />` : `<div class="product-card-image"></div>`}
       <div class="product-card-body">
         <p class="product-name">${escapeHtml(p.name)}</p>
+        ${ratingLine}
         <p class="product-desc">${escapeHtml(p.description)}</p>
         <p class="product-price" style="color:${store.accentColor || "#8C6A30"}">${escapeHtml(p.price)}</p>
       </div>
