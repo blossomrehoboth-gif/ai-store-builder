@@ -45,8 +45,6 @@ Return ONLY a JSON object, with no markdown fences and no commentary, matching e
   "heroHeadline": "a punchy headline for the store's hero section, under 12 words",
   "brandStory": "two sentences about why this store exists, written in the given tone",
   "accentColor": "a single hex color that fits the tone and product, e.g. #7A5CFA",
-  "rating": "a number between 4.5 and 5.0, one decimal, as a string, e.g. '4.8'",
-  "reviewsLine": "a review count phrase, e.g. '342' (just the number, as a string)",
   "products": [
     {"name": "product name", "description": "one sentence, under 20 words", "price": "price like $24.99"},
     {"name": "product name", "description": "one sentence, under 20 words", "price": "price like $24.99"},
@@ -272,7 +270,6 @@ app.get('/api/aliexpress/:itemId', async (req, res) => {
   try {
     const { itemId } = req.params;
     const key = process.env.ALIEXPRESS_API_KEY || '';
-    console.log('ALIEXPRESS_API_KEY present:', !!key, 'length:', key.length, 'starts with:', key.slice(0, 6), 'ends with:', key.slice(-4));
 
     const url = `https://aliexpress-datahub.p.rapidapi.com/item_detail?itemId=${itemId}&region=US&currency=USD&locale=en_US`;
 
@@ -292,6 +289,26 @@ app.get('/api/aliexpress/:itemId', async (req, res) => {
 // ---------- end AliExpress product lookup ----------
 
 // ---------- AliExpress product search ----------
+// Pulls real photo URLs out of whatever AliExpress returns, without
+// assuming an exact response shape (their API's structure varies and
+// this particular endpoint is sometimes temporarily down). If nothing
+// usable comes back, it returns an empty list rather than an error —
+// the frontend already treats "no images" as "show a blank box".
+function extractImageUrls(node, found, depth) {
+  if (depth > 6 || found.length >= 12 || !node || typeof node !== 'object') return;
+  if (Array.isArray(node)) {
+    for (const item of node) extractImageUrls(item, found, depth + 1);
+    return;
+  }
+  for (const value of Object.values(node)) {
+    if (typeof value === 'string' && /\.(jpe?g|png|webp)(\?|$)/i.test(value) && (value.startsWith('http') || value.startsWith('//'))) {
+      found.push(value.startsWith('//') ? 'https:' + value : value);
+    } else if (value && typeof value === 'object') {
+      extractImageUrls(value, found, depth + 1);
+    }
+  }
+}
+
 app.get('/api/aliexpress-search', async (req, res) => {
   try {
     const q = req.query.q || 'phone charger';
@@ -303,11 +320,25 @@ app.get('/api/aliexpress-search', async (req, res) => {
         'x-rapidapi-host': 'aliexpress-datahub.p.rapidapi.com',
       },
     });
+
+    if (!response.ok) {
+      return res.json({ items: [] });
+    }
+
     const data = await response.json();
 
-    return res.json({ debug_status: response.status, debug_raw: data });
+    // A successful call still comes back as an "error" payload when
+    // AliExpress's own item_search endpoint is temporarily down.
+    if (data?.result?.status?.data === 'error') {
+      return res.json({ items: [] });
+    }
+
+    const images = [];
+    extractImageUrls(data, images, 0);
+
+    return res.json({ items: images.length ? [{ images }] : [] });
   } catch (err) {
-    res.status(500).json({ error: 'Search failed.', detail: String(err) });
+    res.json({ items: [] });
   }
 });
 // ---------- end AliExpress product search ----------
