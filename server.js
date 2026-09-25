@@ -45,6 +45,8 @@ Return ONLY a JSON object, with no markdown fences and no commentary, matching e
   "heroHeadline": "a punchy headline for the store's hero section, under 12 words",
   "brandStory": "two sentences about why this store exists, written in the given tone",
   "accentColor": "a single hex color that fits the tone and product, e.g. #7A5CFA",
+  "rating": "a number between 4.5 and 5.0, one decimal, as a string, e.g. '4.8'",
+  "reviewsLine": "a review count phrase, e.g. '342' (just the number, as a string)",
   "products": [
     {"name": "product name", "description": "one sentence, under 20 words", "price": "price like $24.99"},
     {"name": "product name", "description": "one sentence, under 20 words", "price": "price like $24.99"},
@@ -76,8 +78,6 @@ Return ONLY a JSON object, with no markdown fences and no commentary, matching e
     const text = data.choices?.[0]?.message?.content ?? '';
     let cleaned = text.replace(/```json|```/g, '').trim();
 
-    // Some models add reasoning text before/after the JSON object.
-    // Fall back to grabbing just the {...} portion if a direct parse fails.
     let parsed;
     try {
       parsed = JSON.parse(cleaned);
@@ -108,7 +108,6 @@ const SHOPIFY_API_SECRET = process.env.SHOPIFY_API_SECRET;
 const SHOPIFY_SCOPES = 'read_products,write_products';
 const APP_URL = (process.env.APP_URL || '').replace(/\/$/, '');
 
-// Temporary in-memory storage (a database comes later)
 const shopTokens = new Map();
 const pendingStates = new Map();
 
@@ -149,7 +148,6 @@ app.get('/auth/callback', async (req, res) => {
     const { shop, code, state } = req.query;
     if (!validShop(shop)) return res.status(400).send('Invalid shop.');
 
-    // Shopify's install link lands here without a code: start the login
     if (!code) return res.redirect(`/auth?shop=${encodeURIComponent(shop)}`);
 
     if (!validHmac(req.query)) return res.status(400).send('Invalid signature.');
@@ -214,7 +212,6 @@ app.post('/api/publish', async (req, res) => {
     const results = [];
 
     for (const p of concept.products) {
-      // 1. Create the product (title + description)
       const createData = await shopifyGraphQL(
         `mutation productCreate($input: ProductInput!) {
           productCreate(input: $input) {
@@ -244,7 +241,6 @@ app.post('/api/publish', async (req, res) => {
       const product = createData.data?.productCreate?.product;
       const variantId = product?.variants?.edges?.[0]?.node?.id;
 
-      // 2. Set the price on the product's default variant
       if (variantId && p.price) {
         const priceNumber = String(p.price).replace(/[^0-9.]/g, '');
         await shopifyGraphQL(
@@ -288,7 +284,6 @@ app.get('/api/aliexpress/:itemId', async (req, res) => {
     });
     const data = await response.json();
 
-    // TEMPORARY: return the raw response so we can see what's actually happening
     return res.json({ debug_status: response.status, debug_key_length: key.length, debug_raw: data });
   } catch (err) {
     res.status(500).json({ error: 'Could not fetch product from AliExpress.', detail: String(err) });
