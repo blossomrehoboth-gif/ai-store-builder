@@ -358,6 +358,30 @@ body {
   color: var(--ink-on-paper);
 }
 
+.hero-thumbs {
+  display: flex;
+  gap: 0.5rem;
+  padding: 0.75rem 1.5rem;
+  background: var(--paper);
+  border-bottom: 1px solid var(--line-on-paper);
+  overflow-x: auto;
+}
+
+.hero-thumb {
+  width: 56px;
+  height: 56px;
+  border-radius: 4px;
+  object-fit: cover;
+  cursor: pointer;
+  border: 2px solid transparent;
+  flex-shrink: 0;
+  background: #eee6d5;
+}
+
+.hero-thumb.active {
+  border-color: var(--brass);
+}
+
 .store-body { padding: 2rem; }
 
 @media (min-width: 768px) {
