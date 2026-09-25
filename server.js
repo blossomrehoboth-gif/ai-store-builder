@@ -185,6 +185,7 @@ app.get('/auth/callback', async (req, res) => {
 app.post('/api/publish', async (req, res) => {
   try {
     const { shop, concept } = req.body;
+    const searchNiche = (concept?.sourceNiche || '').trim();
     if (!validShop(shop)) {
       return res.status(400).json({ error: 'Invalid shop.' });
     }
@@ -213,21 +214,23 @@ app.post('/api/publish', async (req, res) => {
 
     const results = [];
 
-    for (const p of concept.products) {
+    for (let i = 0; i < concept.products.length; i++) {
+      const p = concept.products[i];
       // 1a. Try to find a matching real AliExpress product, for photos
       let images = [];
       try {
         const key = process.env.ALIEXPRESS_API_KEY;
         if (key) {
-          const searchUrl = `https://aliexpress-datahub.p.rapidapi.com/item_search?q=${encodeURIComponent(p.name)}&page=1&sort=default`;
+          const searchQuery = searchNiche || p.name;
+          const searchUrl = `https://aliexpress-datahub.p.rapidapi.com/item_search?q=${encodeURIComponent(searchQuery)}&page=1&sort=default`;
           const searchRes = await fetch(searchUrl, {
             headers: { 'x-rapidapi-key': key, 'x-rapidapi-host': 'aliexpress-datahub.p.rapidapi.com' },
           });
           if (searchRes.ok) {
             const searchData = await searchRes.json();
             const rawItems = searchData.result?.resultList || searchData.resultList || searchData.items || [];
-            console.log('AliExpress search for', JSON.stringify(p.name), '-> found', rawItems.length, 'raw items. Top-level keys:', Object.keys(searchData));
-            const first = rawItems[0];
+            console.log('AliExpress search for', JSON.stringify(searchQuery), '(product:', JSON.stringify(p.name) + ') -> found', rawItems.length, 'raw items. Top-level keys:', Object.keys(searchData));
+            const first = rawItems[i] || rawItems[0];
             if (first) {
               const item = first?.item ? first : { item: first };
               images = extractImages(item)

@@ -86,6 +86,7 @@ async function generateStore() {
     }
 
     renderStore(data);
+    data.sourceNiche = product;
     currentStore = data;
     postActions.hidden = false;
   } catch (err) {
