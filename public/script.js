@@ -194,8 +194,7 @@ function renderStore(store, heroImages, productImages, realRating, realSold) {
   document.getElementById("store-name").textContent = store.storeName || "";
   document.getElementById("store-name").style.color = store.accentColor || "#8C6A30";
   document.getElementById("store-tagline").textContent = store.tagline || "";
-  document.getElementById("store-hero").textContent = store.heroHeadline || "";
-  document.getElementById("store-story").textContent = store.brandStory || "";
+  // (headline + brand story intentionally not rendered — removed from template)
 
   const ratingEl = document.getElementById("store-rating");
   if (store.rating) {
