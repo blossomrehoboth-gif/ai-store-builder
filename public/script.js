@@ -97,7 +97,21 @@ async function generateStore() {
     }
 
     const heroImages = aliItems.map((it) => it.image).filter(Boolean).slice(0, 6);
-    const perProduct = (data.products || []).map((_, i) => aliItems[i] || null);
+    let perProduct = (data.products || []).map((_, i) => aliItems[i] || null);
+
+    // If a product's own listing has price/rating but no photo, borrow
+    // a photo from another real listing rather than leaving it blank.
+    // Never invents an image — only reuses a real one we already have.
+    const fallbackImagePool = aliItems.map((it) => it.image).filter(Boolean);
+    let fallbackIdx = 0;
+    perProduct = perProduct.map((item) => {
+      if (item && !item.image && fallbackImagePool.length > 0) {
+        const borrowedImage = fallbackImagePool[fallbackIdx % fallbackImagePool.length];
+        fallbackIdx += 1;
+        return { ...item, image: borrowedImage };
+      }
+      return item;
+    });
 
     // Real price replaces the AI's made-up one wherever we have one —
     // this is also what actually gets published to Shopify.

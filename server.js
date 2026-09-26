@@ -362,6 +362,9 @@ app.get('/api/aliexpress-search', async (req, res) => {
     }
 
     const items = parseAliItems(data);
+    console.log(
+      `AliExpress search "${q}" -> ${items.length} items, ${items.filter((it) => it.image).length} with photos, ${items.filter((it) => !it.image).length} without`
+    );
     return res.json({ items });
   } catch (err) {
     res.json({ items: [] });
