@@ -198,10 +198,16 @@ function renderStore(store, heroImages, productImages, aliItems) {
   // (headline + brand story intentionally not rendered — removed from template)
 
   const ratingEl = document.getElementById("store-rating");
-  if (store.rating) {
-    const rounded = Math.round(parseFloat(store.rating));
+  const realRatings = (aliItems || []).filter((it) => it && it.rating != null);
+  const realSolds = (aliItems || []).filter((it) => it && it.sold != null);
+
+  if (realRatings.length > 0) {
+    const avgRating = realRatings.reduce((sum, it) => sum + it.rating, 0) / realRatings.length;
+    const totalSold = realSolds.reduce((sum, it) => sum + it.sold, 0);
+    const rounded = Math.round(avgRating);
     const stars = "★".repeat(Math.max(1, Math.min(5, rounded))) + "☆".repeat(5 - Math.max(1, Math.min(5, rounded)));
-    ratingEl.textContent = `${stars}  Rated ${store.rating} out of 5${store.reviewsLine ? " by " + store.reviewsLine : ""}`;
+    const soldText = realSolds.length > 0 ? ` · ${totalSold.toLocaleString()} sold across our collection` : "";
+    ratingEl.textContent = `${stars}  ${avgRating.toFixed(1)} average rating${soldText}`;
     ratingEl.hidden = false;
   } else {
     ratingEl.hidden = true;
