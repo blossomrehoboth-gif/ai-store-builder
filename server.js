@@ -291,32 +291,37 @@ app.get('/api/aliexpress/:itemId', async (req, res) => {
 // ---------- AliExpress product search ----------
 // Uses item_search_2 — item_search (v1) is currently unreliable on
 // AliExpress's side, but item_search_2 was confirmed working.
-function extractImageUrls(node, found, depth) {
-  if (depth > 6 || found.length >= 12 || !node || typeof node !== 'object') return;
-  if (Array.isArray(node)) {
-    for (const item of node) extractImageUrls(item, found, depth + 1);
-    return;
-  }
-  for (const value of Object.values(node)) {
-    if (typeof value === 'string' && /\.(jpe?g|png|webp)(\?|$)/i.test(value) && (value.startsWith('http') || value.startsWith('//'))) {
-      found.push(value.startsWith('//') ? 'https:' + value : value);
-    } else if (value && typeof value === 'object') {
-      extractImageUrls(value, found, depth + 1);
-    }
-  }
-}
 
-// Pulls the real rating + sold count off the first result in
-// resultList, if present. Returns nulls (never fake numbers) when the
-// shape isn't what we expect, so the frontend can hide the line.
-function extractRatingAndSold(data) {
-  const firstItem = data?.result?.resultList?.[0]?.item;
-  if (!firstItem) return { rating: null, sold: null };
+// Region -> currency mapping used across search + region-price lookups.
+const REGION_CURRENCY = {
+  US: 'USD',
+  EU: 'EUR',
+  UK: 'GBP',
+  AU: 'AUD',
+};
 
-  const rating = firstItem.averageStarRate != null ? parseFloat(firstItem.averageStarRate) : null;
-  const soldRaw = firstItem.sales != null ? parseInt(String(firstItem.sales).replace(/[^0-9]/g, ''), 10) : null;
+// Digs one item's price fields out of an item_search_2 / item_detail
+// result. Never invents numbers — returns null where AliExpress didn't
+// give us a real value.
+function extractPriceFields(item) {
+  const def = item?.sku?.def || {};
+  const price = def.price != null ? parseFloat(def.price) : null;
+  const promotionPrice = def.promotionPrice != null ? parseFloat(def.promotionPrice) : null;
+  const rating = item?.averageStarRate != null ? parseFloat(item.averageStarRate) : null;
+  const soldRaw = item?.sales != null ? parseInt(String(item.sales).replace(/[^0-9]/g, ''), 10) : null;
+
+  let discountPercent = null;
+  if (Number.isFinite(price) && Number.isFinite(promotionPrice) && price > 0 && promotionPrice < price) {
+    discountPercent = Math.round(((price - promotionPrice) / price) * 100);
+  }
 
   return {
+    itemId: item?.itemId || null,
+    title: item?.title || null,
+    image: item?.image ? (item.image.startsWith('//') ? 'https:' + item.image : item.image) : null,
+    price: Number.isFinite(price) ? price : null,
+    promotionPrice: Number.isFinite(promotionPrice) ? promotionPrice : null,
+    discountPercent,
     rating: Number.isFinite(rating) ? rating : null,
     sold: Number.isFinite(soldRaw) ? soldRaw : null,
   };
@@ -325,7 +330,10 @@ function extractRatingAndSold(data) {
 app.get('/api/aliexpress-search', async (req, res) => {
   try {
     const q = req.query.q || 'phone charger';
-    const url = `https://aliexpress-datahub.p.rapidapi.com/item_search_2?q=${encodeURIComponent(q)}&page=1&sort=default`;
+    const region = REGION_CURRENCY[req.query.region] ? req.query.region : 'US';
+    const currency = REGION_CURRENCY[region];
+
+    const url = `https://aliexpress-datahub.p.rapidapi.com/item_search_2?q=${encodeURIComponent(q)}&page=1&sort=default&region=${region}&currency=${currency}&locale=en_US`;
 
     const response = await fetch(url, {
       headers: {
@@ -335,26 +343,56 @@ app.get('/api/aliexpress-search', async (req, res) => {
     });
 
     if (!response.ok) {
-      return res.json({ items: [], rating: null, sold: null });
+      return res.json({ items: [] });
     }
 
     const data = await response.json();
 
     if (data?.result?.status?.data === 'error') {
-      return res.json({ items: [], rating: null, sold: null });
+      return res.json({ items: [] });
     }
 
-    const images = [];
-    extractImageUrls(data, images, 0);
-    const { rating, sold } = extractRatingAndSold(data);
+    const rawItems = (data?.result?.resultList || []).map((r) => r.item).filter(Boolean);
+    const items = rawItems.slice(0, 6).map(extractPriceFields).filter((it) => it.itemId);
 
-    return res.json({
-      items: images.length ? [{ images }] : [],
-      rating,
-      sold,
-    });
+    return res.json({ items, region, currency });
   } catch (err) {
-    res.json({ items: [], rating: null, sold: null });
+    res.json({ items: [] });
+  }
+});
+
+// Looks up real price for one specific AliExpress item in a given
+// region, so a shopper tapping US/EU/UK/AU on a product card sees a
+// real regional price, not a guess.
+app.get('/api/aliexpress-region-price/:itemId', async (req, res) => {
+  try {
+    const { itemId } = req.params;
+    const region = REGION_CURRENCY[req.query.region] ? req.query.region : 'US';
+    const currency = REGION_CURRENCY[region];
+
+    const url = `https://aliexpress-datahub.p.rapidapi.com/item_detail?itemId=${encodeURIComponent(itemId)}&region=${region}&currency=${currency}&locale=en_US`;
+
+    const response = await fetch(url, {
+      headers: {
+        'x-rapidapi-key': process.env.ALIEXPRESS_API_KEY,
+        'x-rapidapi-host': 'aliexpress-datahub.p.rapidapi.com',
+      },
+    });
+
+    if (!response.ok) {
+      return res.json({ ok: false });
+    }
+
+    const data = await response.json();
+    const item = data?.result?.item || data?.result || null;
+    if (!item || data?.result?.status?.data === 'error') {
+      return res.json({ ok: false });
+    }
+
+    const priceFields = extractPriceFields(item);
+    return res.json({ ok: true, region, currency, ...priceFields });
+  } catch (err) {
+    res.json({ ok: false });
   }
 });
 // ---------- end AliExpress product search ----------

@@ -450,6 +450,41 @@ body {
 .product-price {
   font-weight: 600;
   margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+
+.discount-badge {
+  font-size: 0.7rem;
+  font-weight: 600;
+  background: #E8F5E9;
+  color: #2E7D32;
+  padding: 0.1rem 0.45rem;
+  border-radius: 999px;
+}
+
+.region-selector {
+  display: flex;
+  gap: 0.35rem;
+  margin-top: 0.5rem;
+}
+
+.region-btn {
+  font-size: 0.75rem;
+  padding: 0.25rem 0.55rem;
+  border: 1px solid #D8CFC0;
+  border-radius: 6px;
+  background: #fff;
+  color: #444;
+  cursor: pointer;
+}
+
+.region-btn.active {
+  background: #efe6d5;
+  border-color: #B8860B;
+  font-weight: 600;
 }
 
 .store-footer {

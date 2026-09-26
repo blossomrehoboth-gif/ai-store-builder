@@ -95,28 +95,29 @@ async function generateStore() {
     }
 
     let heroImages = [];
-    let productImages = [];
-    let realRating = null;
-    let realSold = null;
+    let aliItems = []; // one AliExpress item per AI product slot, or null
     try {
-      const imgRes = await fetch(`/api/aliexpress-search?q=${encodeURIComponent(product)}`);
+      const imgRes = await fetch(`/api/aliexpress-search?q=${encodeURIComponent(product)}&region=US`);
       const imgData = await imgRes.json();
-      const items = (imgData.items || []).filter((it) => it.images && it.images.length > 0);
+      const found = (imgData.items || []).filter((it) => it.itemId);
 
-      const pool = items
-        .flatMap((it) => it.images)
-        .filter(Boolean)
-        .map((u) => (u.startsWith("//") ? "https:" + u : u));
+      heroImages = found.map((it) => it.image).filter(Boolean).slice(0, 6);
+      aliItems = (data.products || []).map((_, i) => found[i] || null);
 
-      heroImages = pool.slice(0, 6);
-      productImages = (data.products || []).map((_, i) =>
-        pool.length ? pool[(i + 1) % pool.length] : null
-      );
-      realRating = imgData.rating ?? null;
-      realSold = imgData.sold ?? null;
+      // Real AliExpress price replaces the AI's made-up one wherever we
+      // have one — this is what actually gets published to Shopify too.
+      (data.products || []).forEach((p, i) => {
+        const real = aliItems[i];
+        const realPrice = real?.promotionPrice ?? real?.price;
+        if (realPrice != null) {
+          p.price = `$${realPrice.toFixed(2)}`;
+        }
+      });
     } catch (e) {
-      console.warn("Image fetch failed:", e);
+      console.warn("AliExpress fetch failed:", e);
     }
+
+    let productImages = aliItems.map((it) => it?.image || null);
 
     // Fall back to placeholder photos if AliExpress gave us nothing.
     if (heroImages.length === 0) {
@@ -127,7 +128,7 @@ async function generateStore() {
       productImages = (data.products || []).map((_, i) => fallback[i]);
     }
 
-    renderStore(data, heroImages, productImages, realRating, realSold);
+    renderStore(data, heroImages, productImages, aliItems);
     data.sourceNiche = product;
     currentStore = data;
     postActions.hidden = false;
@@ -189,7 +190,7 @@ function renderHeroThumbs(images) {
   thumbsBox.hidden = false;
 }
 
-function renderStore(store, heroImages, productImages, realRating, realSold) {
+function renderStore(store, heroImages, productImages, aliItems) {
   document.getElementById("domain-hint").textContent = store.domainHint || "yourstore.com";
   document.getElementById("store-name").textContent = store.storeName || "";
   document.getElementById("store-name").style.color = store.accentColor || "#8C6A30";
@@ -215,16 +216,33 @@ function renderStore(store, heroImages, productImages, realRating, realSold) {
   productList.innerHTML = "";
   (store.products || []).forEach((p, i) => {
     const imgUrl = productImages && productImages[i];
+    const ali = aliItems && aliItems[i];
 
-    // Real AliExpress data only — never a made-up number. If we don't
-    // have a real rating for this search, the line is simply omitted.
+    // Real AliExpress data only — never a made-up number. Lines are
+    // simply omitted when we don't have a real value for this item.
     let ratingLine = "";
-    if (realRating != null) {
-      const rounded = Math.round(realRating);
+    if (ali?.rating != null) {
+      const rounded = Math.round(ali.rating);
       const stars = "★".repeat(Math.max(1, Math.min(5, rounded))) + "☆".repeat(5 - Math.max(1, Math.min(5, rounded)));
-      const soldText = realSold != null ? ` · ${realSold} sold` : "";
-      ratingLine = `<p class="product-rating">${stars} ${realRating.toFixed(1)}${soldText}</p>`;
+      const soldText = ali.sold != null ? ` · ${ali.sold} sold` : "";
+      ratingLine = `<p class="product-rating">${stars} ${ali.rating.toFixed(1)}${soldText}</p>`;
     }
+
+    let discountBadge = "";
+    if (ali?.discountPercent != null) {
+      discountBadge = `<span class="discount-badge">Save ${ali.discountPercent}%</span>`;
+    }
+
+    const regionButtons = ali?.itemId
+      ? `<div class="region-selector" data-item-id="${ali.itemId}">
+          ${["US", "EU", "UK", "AU"]
+            .map(
+              (r, idx) =>
+                `<button type="button" class="region-btn${idx === 0 ? " active" : ""}" data-region="${r}">${r}</button>`
+            )
+            .join("")}
+        </div>`
+      : "";
 
     const card = document.createElement("div");
     card.className = "product-card";
@@ -234,7 +252,11 @@ function renderStore(store, heroImages, productImages, realRating, realSold) {
         <p class="product-name">${escapeHtml(p.name)}</p>
         ${ratingLine}
         <p class="product-desc">${escapeHtml(p.description)}</p>
-        <p class="product-price" style="color:${store.accentColor || "#8C6A30"}">${escapeHtml(p.price)}</p>
+        <p class="product-price">
+          <span class="price-value" style="color:${store.accentColor || "#8C6A30"}">${escapeHtml(p.price)}</span>
+          ${discountBadge}
+        </p>
+        ${regionButtons}
       </div>
     `;
     productList.appendChild(card);
@@ -252,6 +274,59 @@ function renderStore(store, heroImages, productImages, realRating, realSold) {
   loadingState.hidden = true;
   storePreview.hidden = false;
 }
+
+// One delegated listener handles every region button on every card,
+// including ones added after a regenerate.
+document.getElementById("product-list").addEventListener("click", async (e) => {
+  const btn = e.target.closest(".region-btn");
+  if (!btn) return;
+
+  const selector = btn.closest(".region-selector");
+  const card = btn.closest(".product-card");
+  const itemId = selector.dataset.itemId;
+  const region = btn.dataset.region;
+
+  selector.querySelectorAll(".region-btn").forEach((b) => b.classList.remove("active"));
+  btn.classList.add("active");
+
+  const priceValueEl = card.querySelector(".price-value");
+  const priceLineEl = card.querySelector(".product-price");
+  const originalText = priceValueEl.textContent;
+  priceValueEl.textContent = "...";
+
+  try {
+    const res = await fetch(`/api/aliexpress-region-price/${encodeURIComponent(itemId)}?region=${region}`);
+    const info = await res.json();
+
+    if (!info.ok) {
+      priceValueEl.textContent = originalText;
+      return;
+    }
+
+    const realPrice = info.promotionPrice ?? info.price;
+    if (realPrice == null) {
+      priceValueEl.textContent = originalText;
+      return;
+    }
+
+    const symbol = { USD: "$", EUR: "€", GBP: "£", AUD: "A$" }[info.currency] || "";
+    priceValueEl.textContent = `${symbol}${realPrice.toFixed(2)}`;
+
+    let badge = priceLineEl.querySelector(".discount-badge");
+    if (info.discountPercent != null) {
+      if (!badge) {
+        badge = document.createElement("span");
+        badge.className = "discount-badge";
+        priceLineEl.appendChild(badge);
+      }
+      badge.textContent = `Save ${info.discountPercent}%`;
+    } else if (badge) {
+      badge.remove();
+    }
+  } catch (e) {
+    priceValueEl.textContent = originalText;
+  }
+});
 
 function escapeHtml(str) {
   const div = document.createElement("div");
