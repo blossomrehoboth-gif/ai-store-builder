@@ -487,6 +487,28 @@ body {
   font-weight: 600;
 }
 
+.color-swatches {
+  display: flex;
+  gap: 0.4rem;
+  margin-top: 0.5rem;
+}
+
+.swatch {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 2px solid #D8CFC0;
+  background-size: cover;
+  background-position: center;
+  background-color: #eee;
+  cursor: pointer;
+  display: inline-block;
+}
+
+.swatch.active {
+  border-color: #B8860B;
+}
+
 .store-footer {
   border-top: 1px solid var(--line-on-paper);
   padding: 1rem 1.5rem;

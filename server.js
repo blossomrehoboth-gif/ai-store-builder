@@ -395,6 +395,58 @@ app.get('/api/aliexpress-region-price/:itemId', async (req, res) => {
     res.json({ ok: false });
   }
 });
+// Looks up real color/variant swatches for one item, if AliExpress has
+// them. Returns an empty array (never invented colors) when the shape
+// isn't what we expect — logs the raw sku property data once so we can
+// debug via Render logs the same way we fixed the photo bug.
+app.get('/api/aliexpress-colors/:itemId', async (req, res) => {
+  try {
+    const { itemId } = req.params;
+    const url = `https://aliexpress-datahub.p.rapidapi.com/item_detail?itemId=${encodeURIComponent(itemId)}&region=US&currency=USD&locale=en_US`;
+
+    const response = await fetch(url, {
+      headers: {
+        'x-rapidapi-key': process.env.ALIEXPRESS_API_KEY,
+        'x-rapidapi-host': 'aliexpress-datahub.p.rapidapi.com',
+      },
+    });
+
+    if (!response.ok) {
+      return res.json({ colors: [] });
+    }
+
+    const data = await response.json();
+    const item = data?.result?.item || data?.result || null;
+    if (!item) {
+      return res.json({ colors: [] });
+    }
+
+    const propList = item?.skuModule?.productSKUPropertyList || [];
+    const colorProp = propList.find((p) =>
+      /colou?r/i.test(p?.skuPropertyName || p?.skuPropertyId || '')
+    );
+
+    if (!colorProp) {
+      console.log(`DEBUG no color prop for ${itemId} — skuModule keys:`, Object.keys(item?.skuModule || {}));
+      return res.json({ colors: [] });
+    }
+
+    const colors = (colorProp.skuPropertyValues || [])
+      .map((v) => ({
+        name: v.propertyValueDisplayName || v.propertyValueName || null,
+        image: v.skuPropertyImagePath
+          ? v.skuPropertyImagePath.startsWith('//')
+            ? 'https:' + v.skuPropertyImagePath
+            : v.skuPropertyImagePath
+          : null,
+      }))
+      .filter((c) => c.name);
+
+    return res.json({ colors });
+  } catch (err) {
+    res.json({ colors: [] });
+  }
+});
 // ---------- end AliExpress product search ----------
 
 app.listen(PORT, () => {

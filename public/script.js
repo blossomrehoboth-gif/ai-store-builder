@@ -262,10 +262,43 @@ function renderStore(store, heroImages, productImages, aliItems) {
           <span class="price-value" style="color:${store.accentColor || "#8C6A30"}">${escapeHtml(p.price)}</span>
           ${discountBadge}
         </p>
+        <div class="color-swatches" hidden></div>
         ${regionButtons}
       </div>
     `;
     productList.appendChild(card);
+
+    // Fetch real color variants in the background — never blocks the
+    // card from showing, and stays hidden if AliExpress has none.
+    if (ali?.itemId) {
+      fetch(`/api/aliexpress-colors/${encodeURIComponent(ali.itemId)}`)
+        .then((r) => r.json())
+        .then((info) => {
+          const swatchBox = card.querySelector(".color-swatches");
+          const colors = info.colors || [];
+          if (!swatchBox || colors.length === 0) return;
+          swatchBox.innerHTML = colors
+            .map(
+              (c, idx) =>
+                `<span class="swatch${idx === 0 ? " active" : ""}" title="${escapeHtml(c.name)}"${
+                  c.image ? ` style="background-image:url('${c.image}')"` : ""
+                }></span>`
+            )
+            .join("");
+          swatchBox.hidden = false;
+          swatchBox.querySelectorAll(".swatch").forEach((el, idx) => {
+            el.addEventListener("click", () => {
+              swatchBox.querySelectorAll(".swatch").forEach((s) => s.classList.remove("active"));
+              el.classList.add("active");
+              if (colors[idx]?.image) {
+                const img = card.querySelector(".product-card-image");
+                if (img && img.tagName === "IMG") img.src = colors[idx].image;
+              }
+            });
+          });
+        })
+        .catch(() => {});
+    }
   });
 
   const adBox = document.getElementById("ad-box");
