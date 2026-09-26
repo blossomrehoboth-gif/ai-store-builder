@@ -378,3 +378,5 @@ body {
   font-size: 0.8rem;
   text-align: center;
 }
+
+.product-rating { font-size: 0.75rem; color: #B8863B; margin: 0 0 0.35rem; }

@@ -306,21 +306,37 @@ app.get('/api/aliexpress/:itemId', async (req, res) => {
 // ---------- end AliExpress product lookup ----------
 
 // ---------- AliExpress product search ----------
-// Uses item_search_2 — item_search (v1) is currently unreliable on
-// AliExpress's side, but item_search_2 was confirmed working.
-function extractImageUrls(node, found, depth) {
-  if (depth > 6 || found.length >= 12 || !node || typeof node !== 'object') return;
-  if (Array.isArray(node)) {
-    for (const item of node) extractImageUrls(item, found, depth + 1);
-    return;
-  }
-  for (const value of Object.values(node)) {
-    if (typeof value === 'string' && /\.(jpe?g|png|webp)(\?|$)/i.test(value) && (value.startsWith('http') || value.startsWith('//'))) {
-      found.push(value.startsWith('//') ? 'https:' + value : value);
-    } else if (value && typeof value === 'object') {
-      extractImageUrls(value, found, depth + 1);
-    }
-  }
+// Uses item_search_2 (confirmed working) and pulls real structured data
+// per listing: photo, price, original price, star rating, and units sold
+// — not just a bag of image URLs. Any listing missing a field just omits
+// that field; the frontend fills in an AI-written fallback for price.
+function parseAliItems(data) {
+  const list = data?.result?.resultList || [];
+  return list
+    .map((entry) => {
+      const item = entry?.item || entry;
+      if (!item?.itemId) return null;
+
+      const def = item?.sku?.def || {};
+      const rating = def.averageStarRate != null ? parseFloat(def.averageStarRate) : null;
+      const promotionPrice = def.promotionPrice != null ? parseFloat(def.promotionPrice) : null;
+      const listPrice = def.price != null ? parseFloat(def.price) : null;
+      const sold = item.sales != null ? parseInt(String(item.sales).replace(/[^0-9]/g, ''), 10) : null;
+
+      let image = item.image;
+      if (typeof image === 'string' && image.startsWith('//')) image = 'https:' + image;
+
+      return {
+        itemId: item.itemId,
+        title: item.title || null,
+        image: image || null,
+        price: promotionPrice ?? listPrice ?? null,
+        originalPrice: listPrice ?? null,
+        rating: isNaN(rating) ? null : rating,
+        sold: isNaN(sold) ? null : sold,
+      };
+    })
+    .filter(Boolean);
 }
 
 app.get('/api/aliexpress-search', async (req, res) => {
@@ -345,10 +361,8 @@ app.get('/api/aliexpress-search', async (req, res) => {
       return res.json({ items: [] });
     }
 
-    const images = [];
-    extractImageUrls(data, images, 0);
-
-    return res.json({ items: images.length ? [{ images }] : [] });
+    const items = parseAliItems(data);
+    return res.json({ items });
   } catch (err) {
     res.json({ items: [] });
   }

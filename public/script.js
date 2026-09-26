@@ -59,16 +59,6 @@ startOverBtn.addEventListener("click", () => {
   emptyState.hidden = false;
 });
 
-// Deterministic-looking placeholder photos, used whenever the AliExpress
-// image search comes back empty (it's currently unreliable on their end).
-function placeholderImages(seed, count) {
-  const urls = [];
-  for (let i = 0; i < count; i++) {
-    urls.push(`https://picsum.photos/seed/${encodeURIComponent(seed)}-${i}/700/700`);
-  }
-  return urls;
-}
-
 async function generateStore() {
   const product = productInput.value.trim();
   if (!product || loading) return;
@@ -94,27 +84,31 @@ async function generateStore() {
       throw new Error(data.error || "Request failed");
     }
 
-    // Real AliExpress photos only. If none come back, the gallery and
-    // product cards simply stay blank rather than showing something
-    // unrelated to what was actually searched for.
-    let heroImages = [];
-    let productImages = [];
+    // Real AliExpress data: photo, price, rating, sold — per listing.
+    // If a listing is missing, that product slot just keeps the AI's
+    // made-up description/price and shows a blank photo box.
+    let aliItems = [];
     try {
       const imgRes = await fetch(`/api/aliexpress-search?q=${encodeURIComponent(product)}`);
       const imgData = await imgRes.json();
-      const items = (imgData.items || []).filter((it) => it.images && it.images.length > 0);
-
-      const pool = items.flatMap((it) => it.images).filter(Boolean);
-
-      heroImages = pool.slice(0, 6);
-      productImages = (data.products || []).map((_, i) =>
-        pool.length ? pool[(i + 1) % pool.length] : null
-      );
+      aliItems = imgData.items || [];
     } catch (e) {
-      console.warn("Image fetch failed:", e);
+      console.warn("AliExpress fetch failed:", e);
     }
 
-    renderStore(data, heroImages, productImages);
+    const heroImages = aliItems.map((it) => it.image).filter(Boolean).slice(0, 6);
+    const perProduct = (data.products || []).map((_, i) => aliItems[i] || null);
+
+    // Real price replaces the AI's made-up one wherever we have one —
+    // this is also what actually gets published to Shopify.
+    (data.products || []).forEach((p, i) => {
+      const real = perProduct[i];
+      if (real?.price != null) {
+        p.price = `$${real.price.toFixed(2)}`;
+      }
+    });
+
+    renderStore(data, heroImages, perProduct);
     data.sourceNiche = product;
     currentStore = data;
     postActions.hidden = false;
@@ -176,7 +170,12 @@ function renderHeroThumbs(images) {
   thumbsBox.hidden = false;
 }
 
-function renderStore(store, heroImages, productImages) {
+function starString(rating) {
+  const rounded = Math.round(rating);
+  return "★".repeat(Math.max(1, Math.min(5, rounded))) + "☆".repeat(5 - Math.max(1, Math.min(5, rounded)));
+}
+
+function renderStore(store, heroImages, perProduct) {
   document.getElementById("domain-hint").textContent = store.domainHint || "yourstore.com";
   document.getElementById("store-name").textContent = store.storeName || "";
   document.getElementById("store-name").style.color = store.accentColor || "#8C6A30";
@@ -184,21 +183,24 @@ function renderStore(store, heroImages, productImages) {
   document.getElementById("store-hero").textContent = store.heroHeadline || "";
   document.getElementById("store-story").textContent = store.brandStory || "";
 
-  // Spotlight price — pulled from the first generated product, since the
-  // hero section speaks about "this product" as a single flagship item.
+  // Spotlight price/rating — from the first real AliExpress listing when
+  // we have one, otherwise falls back to the AI's made-up price.
   const firstProduct = (store.products || [])[0];
+  const firstAli = perProduct && perProduct[0];
   const priceEl = document.getElementById("price");
   const originalPriceEl = document.getElementById("original-price");
   const discountEl = document.getElementById("discount-badge");
 
-  if (firstProduct?.price) {
-    priceEl.textContent = firstProduct.price;
-    const numeric = parseFloat(String(firstProduct.price).replace(/[^0-9.]/g, ""));
-    if (!isNaN(numeric)) {
-      const inflated = (numeric * 1.35).toFixed(2);
-      originalPriceEl.textContent = `$${inflated}`;
+  const displayPrice = firstAli?.price ?? (firstProduct?.price ? parseFloat(String(firstProduct.price).replace(/[^0-9.]/g, "")) : null);
+  const displayOriginal = firstAli?.originalPrice ?? (displayPrice != null ? displayPrice * 1.35 : null);
+
+  if (displayPrice != null) {
+    priceEl.textContent = `$${displayPrice.toFixed(2)}`;
+    if (displayOriginal != null && displayOriginal > displayPrice) {
+      const pct = Math.round((1 - displayPrice / displayOriginal) * 100);
+      originalPriceEl.textContent = `$${displayOriginal.toFixed(2)}`;
       originalPriceEl.style.display = "inline";
-      discountEl.textContent = "26% OFF";
+      discountEl.textContent = `${pct}% OFF`;
       discountEl.style.display = "inline-block";
     } else {
       originalPriceEl.style.display = "none";
@@ -272,13 +274,22 @@ function renderStore(store, heroImages, productImages) {
   const productList = document.getElementById("product-list");
   productList.innerHTML = "";
   (store.products || []).forEach((p, i) => {
-    const imgUrl = productImages && productImages[i];
+    const ali = perProduct && perProduct[i];
+    const imgUrl = ali?.image;
+
+    let ratingLine = "";
+    if (ali?.rating != null) {
+      const soldText = ali.sold != null ? ` · ${ali.sold} sold` : "";
+      ratingLine = `<p class="product-rating">${starString(ali.rating)} ${ali.rating.toFixed(1)}${soldText}</p>`;
+    }
+
     const card = document.createElement("div");
     card.className = "product-card";
     card.innerHTML = `
       ${imgUrl ? `<img class="product-card-image" src="${imgUrl}" alt="${escapeHtml(p.name)}" />` : `<div class="product-card-image"></div>`}
       <div class="product-card-body">
         <p class="product-name">${escapeHtml(p.name)}</p>
+        ${ratingLine}
         <p class="product-desc">${escapeHtml(p.description)}</p>
         <p class="product-price" style="color:${store.accentColor || "#8C6A30"}">${escapeHtml(p.price)}</p>
       </div>
