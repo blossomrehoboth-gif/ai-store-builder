@@ -93,25 +93,33 @@
         <span class="store-cart">🛒</span>
       </nav>
 
-      <!-- Product image gallery (no text on the image itself) -->
-      <div id="hero-section" class="gallery-section">
-        <img id="hero-image" class="gallery-main-image" src="" alt="" />
-      </div>
+      <!-- AI-designed layout goes here when it succeeds; falls back to
+           the fixed template below if the AI layout call fails. -->
+      <div id="ai-layout-container" hidden></div>
 
-      <div id="hero-thumbs" class="hero-thumbs" hidden></div>
-
-      <div class="store-body">
-        <p id="store-tagline" class="store-tagline-plain"></p>
-        <p id="store-rating" class="store-rating" hidden></p>
-
-        <h3 class="section-label">Featured products</h3>
-        <div id="product-list" class="product-grid"></div>
-
-        <div id="ad-box" class="ad-box" hidden>
-          <p class="ad-label">Ad idea</p>
-          <p id="ad-line" class="ad-line"></p>
+      <div id="fixed-template">
+        <!-- Product image gallery (no text on the image itself) -->
+        <div id="hero-section" class="gallery-section">
+          <img id="hero-image" class="gallery-main-image" src="" alt="" />
         </div>
 
+        <div id="hero-thumbs" class="hero-thumbs" hidden></div>
+
+        <div class="store-body">
+          <p id="store-tagline" class="store-tagline-plain"></p>
+          <p id="store-rating" class="store-rating" hidden></p>
+
+          <h3 class="section-label">Featured products</h3>
+          <div id="product-list" class="product-grid"></div>
+
+          <div id="ad-box" class="ad-box" hidden>
+            <p class="ad-label">Ad idea</p>
+            <p id="ad-line" class="ad-line"></p>
+          </div>
+        </div>
+      </div>
+
+      <div class="store-body">
         <div id="publish-box" class="ad-box">
           <p class="ad-label">Publish to Shopify</p>
           <label class="field" style="margin-bottom: 8px;">

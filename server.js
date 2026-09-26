@@ -100,7 +100,89 @@ Return ONLY a JSON object, with no markdown fences and no commentary, matching e
   }
 });
 
-// ---------- Shopify install / OAuth ----------
+// Strips anything that could execute code in the browser. This is a
+// hard safety floor, not a design restriction — everything else about
+// the AI's HTML/CSS is left untouched.
+function sanitizeAiHtml(html) {
+  return String(html || '')
+    .replace(/<script[\s\S]*?<\/script>/gi, '')
+    .replace(/<iframe[\s\S]*?<\/iframe>/gi, '')
+    .replace(/\son\w+\s*=\s*"[^"]*"/gi, '')
+    .replace(/\son\w+\s*=\s*'[^']*'/gi, '')
+    .replace(/javascript:/gi, '');
+}
+
+// Lets Groq design the entire visual layout for a store — real
+// creative freedom on colors, structure, fonts, spacing — using the
+// real product data (name, price, image, rating) we already fetched
+// from AliExpress. The AI writes the HTML; it never writes the data.
+app.post('/api/generate-layout', async (req, res) => {
+  try {
+    if (!GROQ_API_KEY) {
+      return res.status(500).json({ error: 'Server is missing GROQ_API_KEY.' });
+    }
+
+    const { concept, products } = req.body;
+    if (!concept || !Array.isArray(products)) {
+      return res.status(400).json({ error: 'Missing store concept or product data.' });
+    }
+
+    const prompt = `You are a senior e-commerce web designer. Design a complete, unique storefront page layout for this brand, using ONLY the real data given below — never invent prices, ratings, or product names.
+
+Store: ${concept.storeName}
+Tagline: ${concept.tagline}
+Tone: ${concept.tone || 'Premium'}
+Accent color: ${concept.accentColor}
+
+Real products (use exactly as given):
+${JSON.stringify(products, null, 2)}
+
+Design a fresh, distinctive layout — vary structure, spacing, fonts (use real Google Font names via <link> or font-family stacks), card style, and hero treatment each time you're asked. Be creative: this should not look like a generic template.
+
+Rules:
+- Return ONLY raw HTML with a <style> block inside it. No markdown fences, no commentary, no <html>/<head>/<body> tags — just the fragment to inject into a page.
+- No <script> tags, no inline event handlers (onclick etc), no external JS.
+- Use the exact product names, prices, images, and ratings given — do not change or invent numbers.
+- Make it mobile-first and readable on a narrow phone screen (assume ~380px width).
+- Include an <img> for each product using its given image URL, its name, price, and rating if present.`;
+
+    const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${GROQ_API_KEY}`,
+      },
+      body: JSON.stringify({
+        model: 'openai/gpt-oss-120b',
+        max_tokens: 4000,
+        messages: [{ role: 'user', content: prompt }],
+      }),
+    });
+
+    if (!response.ok) {
+      const detail = await response.text();
+      console.error('Groq layout API error:', detail);
+      return res.status(502).json({ error: 'The AI layout request failed.' });
+    }
+
+    const data = await response.json();
+    const rawHtml = data.choices?.[0]?.message?.content ?? '';
+    const cleaned = rawHtml.replace(/```html|```/gi, '').trim();
+
+    if (!cleaned) {
+      return res.status(502).json({ error: 'AI returned an empty layout.' });
+    }
+
+    const safeHtml = sanitizeAiHtml(cleaned);
+    res.json({ html: safeHtml });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Something went wrong generating the layout.' });
+  }
+});
+// ---------- end AI-generated layout ----------
+
+
 const SHOPIFY_API_KEY = process.env.SHOPIFY_API_KEY;
 const SHOPIFY_API_SECRET = process.env.SHOPIFY_API_SECRET;
 const SHOPIFY_SCOPES = 'read_products,write_products';

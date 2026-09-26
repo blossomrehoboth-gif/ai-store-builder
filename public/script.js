@@ -77,6 +77,11 @@ async function generateStore() {
   setLoadingUI(true);
   errorMsg.hidden = true;
 
+  const aiContainerReset = document.getElementById("ai-layout-container");
+  aiContainerReset.hidden = true;
+  aiContainerReset.innerHTML = "";
+  document.getElementById("fixed-template").hidden = false;
+
   try {
     const response = await fetch("/api/generate", {
       method: "POST",
@@ -132,6 +137,49 @@ async function generateStore() {
     data.sourceNiche = product;
     currentStore = data;
     postActions.hidden = false;
+
+    // AI-designed layout — real creative freedom on top of the real
+    // product data above. If this fails for any reason, the fixed
+    // template we already rendered stays visible, so the store never
+    // breaks or looks empty.
+    try {
+      const layoutProducts = (data.products || []).map((p, i) => ({
+        name: p.name,
+        description: p.description,
+        price: p.price,
+        image: productImages[i] || null,
+        rating: aliItems[i]?.rating ?? null,
+        sold: aliItems[i]?.sold ?? null,
+        discountPercent: aliItems[i]?.discountPercent ?? null,
+      }));
+
+      const layoutRes = await fetch("/api/generate-layout", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          concept: {
+            storeName: data.storeName,
+            tagline: data.tagline,
+            tone: selectedTone,
+            accentColor: data.accentColor,
+          },
+          products: layoutProducts,
+        }),
+      });
+      const layoutData = await layoutRes.json();
+
+      if (layoutRes.ok && layoutData.html) {
+        const aiContainer = document.getElementById("ai-layout-container");
+        aiContainer.innerHTML = layoutData.html;
+        aiContainer.hidden = false;
+        document.getElementById("fixed-template").hidden = true;
+      }
+      // If it failed or came back empty, we simply leave the fixed
+      // template (already rendered above) as-is — no error shown to
+      // the shopper, since the store still looks complete either way.
+    } catch (e) {
+      console.warn("AI layout generation failed, using fixed template:", e);
+    }
   } catch (err) {
     errorMsg.textContent =
       "Couldn't build the store from that input. Try rephrasing the product or niche and generate again.";
