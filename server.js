@@ -173,9 +173,23 @@ Rules:
       return res.status(502).json({ error: 'AI returned an empty layout.' });
     }
 
-    const safeHtml = sanitizeAiHtml(cleaned);
+    let safeHtml = sanitizeAiHtml(cleaned);
+
+    // Never trust the AI to copy image URLs correctly — force-replace
+    // each <img> tag's src with the real product image, in the same
+    // order the products were given. Guarantees real photos regardless
+    // of what the AI actually wrote.
+    const realImages = products.map((p) => p.image).filter(Boolean);
+    let imgIndex = 0;
+    safeHtml = safeHtml.replace(/<img([^>]*)\ssrc=["'][^"']*["']([^>]*)>/gi, (match, before, after) => {
+      const real = realImages[imgIndex];
+      imgIndex += 1;
+      if (!real) return match; // no real image for this slot — leave as-is
+      return `<img${before} src="${real}"${after}>`;
+    });
+
     const imgSrcMatches = [...safeHtml.matchAll(/<img[^>]+src=["']([^"']+)["']/gi)].map((m) => m[1]);
-    console.log('DEBUG AI layout img srcs:', imgSrcMatches);
+    console.log('DEBUG AI layout img srcs (after force-replace):', imgSrcMatches);
     res.json({ html: safeHtml });
   } catch (err) {
     console.error(err);
