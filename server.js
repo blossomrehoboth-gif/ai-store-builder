@@ -174,6 +174,8 @@ Rules:
     }
 
     const safeHtml = sanitizeAiHtml(cleaned);
+    const imgSrcMatches = [...safeHtml.matchAll(/<img[^>]+src=["']([^"']+)["']/gi)].map((m) => m[1]);
+    console.log('DEBUG AI layout img srcs:', imgSrcMatches);
     res.json({ html: safeHtml });
   } catch (err) {
     console.error(err);
