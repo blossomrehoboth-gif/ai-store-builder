@@ -156,7 +156,14 @@ productInput.addEventListener("input", () => {
 });
 
 function setHeroImage(url) {
-  document.getElementById("hero-image").src = url;
+  const heroEl = document.getElementById("hero-image");
+  if (url) {
+    heroEl.src = url;
+    heroEl.style.display = "";
+  } else {
+    heroEl.removeAttribute("src");
+    heroEl.style.display = "none";
+  }
 }
 
 function renderHeroThumbs(images) {
