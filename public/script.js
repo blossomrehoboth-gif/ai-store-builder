@@ -77,13 +77,6 @@ async function generateStore() {
   setLoadingUI(true);
   errorMsg.hidden = true;
 
-  const aiContainerReset = document.getElementById("ai-layout-container");
-  aiContainerReset.hidden = true;
-  if (aiContainerReset.shadowRoot) {
-    aiContainerReset.shadowRoot.innerHTML = "";
-  }
-  document.getElementById("fixed-template").hidden = false;
-
   try {
     const response = await fetch("/api/generate", {
       method: "POST",
@@ -101,92 +94,30 @@ async function generateStore() {
       throw new Error(data.error || "Request failed");
     }
 
+    // Real AliExpress photos only. If none come back, the gallery and
+    // product cards simply stay blank rather than showing something
+    // unrelated to what was actually searched for.
     let heroImages = [];
-    let aliItems = []; // one AliExpress item per AI product slot, or null
+    let productImages = [];
     try {
-      const imgRes = await fetch(`/api/aliexpress-search?q=${encodeURIComponent(product)}&region=US`);
+      const imgRes = await fetch(`/api/aliexpress-search?q=${encodeURIComponent(product)}`);
       const imgData = await imgRes.json();
-      const found = (imgData.items || []).filter((it) => it.itemId);
+      const items = (imgData.items || []).filter((it) => it.images && it.images.length > 0);
 
-      heroImages = found.map((it) => it.image).filter(Boolean).slice(0, 6);
-      aliItems = (data.products || []).map((_, i) => found[i] || null);
+      const pool = items.flatMap((it) => it.images).filter(Boolean);
 
-      // Real AliExpress price replaces the AI's made-up one wherever we
-      // have one — this is what actually gets published to Shopify too.
-      (data.products || []).forEach((p, i) => {
-        const real = aliItems[i];
-        const realPrice = real?.promotionPrice ?? real?.price;
-        if (realPrice != null) {
-          p.price = `$${realPrice.toFixed(2)}`;
-        }
-      });
+      heroImages = pool.slice(0, 6);
+      productImages = (data.products || []).map((_, i) =>
+        pool.length ? pool[(i + 1) % pool.length] : null
+      );
     } catch (e) {
-      console.warn("AliExpress fetch failed:", e);
+      console.warn("Image fetch failed:", e);
     }
 
-    let productImages = aliItems.map((it) => it?.image || null);
-
-    // Fall back to placeholder photos if AliExpress gave us nothing.
-    if (heroImages.length === 0) {
-      heroImages = placeholderImages(product, 4);
-    }
-    if (productImages.length === 0 || productImages.every((u) => !u)) {
-      const fallback = placeholderImages(product + "-product", (data.products || []).length || 3);
-      productImages = (data.products || []).map((_, i) => fallback[i]);
-    }
-
-    renderStore(data, heroImages, productImages, aliItems);
+    renderStore(data, heroImages, productImages);
     data.sourceNiche = product;
     currentStore = data;
     postActions.hidden = false;
-
-    // AI-designed layout — real creative freedom on top of the real
-    // product data above. If this fails for any reason, the fixed
-    // template we already rendered stays visible, so the store never
-    // breaks or looks empty.
-    try {
-      const layoutProducts = (data.products || []).map((p, i) => ({
-        name: p.name,
-        description: p.description,
-        price: p.price,
-        image: productImages[i] || null,
-        rating: aliItems[i]?.rating ?? null,
-        sold: aliItems[i]?.sold ?? null,
-        discountPercent: aliItems[i]?.discountPercent ?? null,
-      }));
-
-      const layoutRes = await fetch("/api/generate-layout", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          concept: {
-            storeName: data.storeName,
-            tagline: data.tagline,
-            tone: selectedTone,
-            accentColor: data.accentColor,
-          },
-          products: layoutProducts,
-        }),
-      });
-      const layoutData = await layoutRes.json();
-
-      if (layoutRes.ok && layoutData.html) {
-        const aiContainer = document.getElementById("ai-layout-container");
-        // Shadow DOM keeps the AI's CSS completely sealed inside this
-        // container — generic selectors like "h1" or "body" in its
-        // <style> block cannot leak out and affect the rest of the
-        // page (like the input panel on the left).
-        const shadow = aiContainer.shadowRoot || aiContainer.attachShadow({ mode: "open" });
-        shadow.innerHTML = layoutData.html;
-        aiContainer.hidden = false;
-        document.getElementById("fixed-template").hidden = true;
-      }
-      // If it failed or came back empty, we simply leave the fixed
-      // template (already rendered above) as-is — no error shown to
-      // the shopper, since the store still looks complete either way.
-    } catch (e) {
-      console.warn("AI layout generation failed, using fixed template:", e);
-    }
   } catch (err) {
     errorMsg.textContent =
       "Couldn't build the store from that input. Try rephrasing the product or niche and generate again.";
@@ -245,27 +176,92 @@ function renderHeroThumbs(images) {
   thumbsBox.hidden = false;
 }
 
-function renderStore(store, heroImages, productImages, aliItems) {
+function renderStore(store, heroImages, productImages) {
   document.getElementById("domain-hint").textContent = store.domainHint || "yourstore.com";
   document.getElementById("store-name").textContent = store.storeName || "";
   document.getElementById("store-name").style.color = store.accentColor || "#8C6A30";
   document.getElementById("store-tagline").textContent = store.tagline || "";
-  // (headline + brand story intentionally not rendered — removed from template)
+  document.getElementById("store-hero").textContent = store.heroHeadline || "";
+  document.getElementById("store-story").textContent = store.brandStory || "";
 
-  const ratingEl = document.getElementById("store-rating");
-  const realRatings = (aliItems || []).filter((it) => it && it.rating != null);
-  const realSolds = (aliItems || []).filter((it) => it && it.sold != null);
+  // Spotlight price — pulled from the first generated product, since the
+  // hero section speaks about "this product" as a single flagship item.
+  const firstProduct = (store.products || [])[0];
+  const priceEl = document.getElementById("price");
+  const originalPriceEl = document.getElementById("original-price");
+  const discountEl = document.getElementById("discount-badge");
 
-  if (realRatings.length > 0) {
-    const avgRating = realRatings.reduce((sum, it) => sum + it.rating, 0) / realRatings.length;
-    const totalSold = realSolds.reduce((sum, it) => sum + it.sold, 0);
-    const rounded = Math.round(avgRating);
-    const stars = "★".repeat(Math.max(1, Math.min(5, rounded))) + "☆".repeat(5 - Math.max(1, Math.min(5, rounded)));
-    const soldText = realSolds.length > 0 ? ` · ${totalSold.toLocaleString()} sold across our collection` : "";
-    ratingEl.textContent = `${stars}  ${avgRating.toFixed(1)} average rating${soldText}`;
-    ratingEl.hidden = false;
+  if (firstProduct?.price) {
+    priceEl.textContent = firstProduct.price;
+    const numeric = parseFloat(String(firstProduct.price).replace(/[^0-9.]/g, ""));
+    if (!isNaN(numeric)) {
+      const inflated = (numeric * 1.35).toFixed(2);
+      originalPriceEl.textContent = `$${inflated}`;
+      originalPriceEl.style.display = "inline";
+      discountEl.textContent = "26% OFF";
+      discountEl.style.display = "inline-block";
+    } else {
+      originalPriceEl.style.display = "none";
+      discountEl.style.display = "none";
+    }
   } else {
-    ratingEl.hidden = true;
+    priceEl.textContent = "";
+    originalPriceEl.style.display = "none";
+    discountEl.style.display = "none";
+  }
+
+  // Feature checklist
+  const checklist = document.getElementById("feature-checklist");
+  checklist.innerHTML = "";
+  (store.featureChecklist || []).forEach((f) => {
+    const li = document.createElement("li");
+    li.textContent = f;
+    checklist.appendChild(li);
+  });
+
+  // Comparison table
+  const comparisonSection = document.getElementById("comparison-section");
+  const comparisonTable = document.getElementById("comparison-table");
+  if (store.comparisonTable && store.comparisonTable.length > 0) {
+    comparisonTable.innerHTML = `
+      <tr><th></th><th class="us-col">${escapeHtml(store.storeName || "Us")}</th><th class="them-col">Others</th></tr>
+      ${store.comparisonTable
+        .map(
+          (row) => `
+        <tr>
+          <th>${escapeHtml(row.category)}</th>
+          <td class="us-col">${escapeHtml(row.us)}</td>
+          <td class="them-col">${escapeHtml(row.them)}</td>
+        </tr>
+      `
+        )
+        .join("")}
+    `;
+    comparisonSection.hidden = false;
+  } else {
+    comparisonSection.hidden = true;
+  }
+
+  // Usage steps
+  const usageSection = document.getElementById("usage-section");
+  const usageSteps = document.getElementById("usage-steps");
+  if (store.usageSteps && store.usageSteps.length > 0) {
+    usageSteps.innerHTML = store.usageSteps
+      .map(
+        (s, i) => `
+      <div class="usage-step">
+        <span class="usage-step-number">${i + 1}</span>
+        <div>
+          <p class="usage-step-title">${escapeHtml(s.title)}</p>
+          <p class="usage-step-detail">${escapeHtml(s.detail)}</p>
+        </div>
+      </div>
+    `
+      )
+      .join("");
+    usageSection.hidden = false;
+  } else {
+    usageSection.hidden = true;
   }
 
   if (heroImages && heroImages.length > 0) {
@@ -277,84 +273,38 @@ function renderStore(store, heroImages, productImages, aliItems) {
   productList.innerHTML = "";
   (store.products || []).forEach((p, i) => {
     const imgUrl = productImages && productImages[i];
-    const ali = aliItems && aliItems[i];
-
-    // Real AliExpress data only — never a made-up number. Lines are
-    // simply omitted when we don't have a real value for this item.
-    let ratingLine = "";
-    if (ali?.rating != null) {
-      const rounded = Math.round(ali.rating);
-      const stars = "★".repeat(Math.max(1, Math.min(5, rounded))) + "☆".repeat(5 - Math.max(1, Math.min(5, rounded)));
-      const soldText = ali.sold != null ? ` · ${ali.sold} sold` : "";
-      ratingLine = `<p class="product-rating">${stars} ${ali.rating.toFixed(1)}${soldText}</p>`;
-    }
-
-    let discountBadge = "";
-    if (ali?.discountPercent != null) {
-      discountBadge = `<span class="discount-badge">Save ${ali.discountPercent}%</span>`;
-    }
-
-    const regionButtons = ali?.itemId
-      ? `<div class="region-selector" data-item-id="${ali.itemId}">
-          ${["US", "EU", "UK", "AU"]
-            .map(
-              (r, idx) =>
-                `<button type="button" class="region-btn${idx === 0 ? " active" : ""}" data-region="${r}">${r}</button>`
-            )
-            .join("")}
-        </div>`
-      : "";
-
     const card = document.createElement("div");
     card.className = "product-card";
     card.innerHTML = `
       ${imgUrl ? `<img class="product-card-image" src="${imgUrl}" alt="${escapeHtml(p.name)}" />` : `<div class="product-card-image"></div>`}
       <div class="product-card-body">
         <p class="product-name">${escapeHtml(p.name)}</p>
-        ${ratingLine}
         <p class="product-desc">${escapeHtml(p.description)}</p>
-        <p class="product-price">
-          <span class="price-value" style="color:${store.accentColor || "#8C6A30"}">${escapeHtml(p.price)}</span>
-          ${discountBadge}
-        </p>
-        <div class="color-swatches" hidden></div>
-        ${regionButtons}
+        <p class="product-price" style="color:${store.accentColor || "#8C6A30"}">${escapeHtml(p.price)}</p>
       </div>
     `;
     productList.appendChild(card);
-
-    // Fetch real color variants in the background — never blocks the
-    // card from showing, and stays hidden if AliExpress has none.
-    if (ali?.itemId) {
-      fetch(`/api/aliexpress-colors/${encodeURIComponent(ali.itemId)}`)
-        .then((r) => r.json())
-        .then((info) => {
-          const swatchBox = card.querySelector(".color-swatches");
-          const colors = info.colors || [];
-          if (!swatchBox || colors.length === 0) return;
-          swatchBox.innerHTML = colors
-            .map(
-              (c, idx) =>
-                `<span class="swatch${idx === 0 ? " active" : ""}" title="${escapeHtml(c.name)}"${
-                  c.image ? ` style="background-image:url('${c.image}')"` : ""
-                }></span>`
-            )
-            .join("");
-          swatchBox.hidden = false;
-          swatchBox.querySelectorAll(".swatch").forEach((el, idx) => {
-            el.addEventListener("click", () => {
-              swatchBox.querySelectorAll(".swatch").forEach((s) => s.classList.remove("active"));
-              el.classList.add("active");
-              if (colors[idx]?.image) {
-                const img = card.querySelector(".product-card-image");
-                if (img && img.tagName === "IMG") img.src = colors[idx].image;
-              }
-            });
-          });
-        })
-        .catch(() => {});
-    }
   });
+
+  // Reviews
+  const reviewsSection = document.getElementById("reviews-section");
+  const reviewsList = document.getElementById("reviews-list");
+  if (store.reviews && store.reviews.length > 0) {
+    reviewsList.innerHTML = store.reviews
+      .map((r) => {
+        const stars = "★".repeat(Math.max(1, Math.min(5, r.rating || 5)));
+        return `
+        <div class="review-card">
+          <p class="review-name">${escapeHtml(r.name || "Verified buyer")} ${stars}</p>
+          <p class="review-quote">"${escapeHtml(r.quote)}"</p>
+        </div>
+      `;
+      })
+      .join("");
+    reviewsSection.hidden = false;
+  } else {
+    reviewsSection.hidden = true;
+  }
 
   const adBox = document.getElementById("ad-box");
   if (store.adLine) {
@@ -368,59 +318,6 @@ function renderStore(store, heroImages, productImages, aliItems) {
   loadingState.hidden = true;
   storePreview.hidden = false;
 }
-
-// One delegated listener handles every region button on every card,
-// including ones added after a regenerate.
-document.getElementById("product-list").addEventListener("click", async (e) => {
-  const btn = e.target.closest(".region-btn");
-  if (!btn) return;
-
-  const selector = btn.closest(".region-selector");
-  const card = btn.closest(".product-card");
-  const itemId = selector.dataset.itemId;
-  const region = btn.dataset.region;
-
-  selector.querySelectorAll(".region-btn").forEach((b) => b.classList.remove("active"));
-  btn.classList.add("active");
-
-  const priceValueEl = card.querySelector(".price-value");
-  const priceLineEl = card.querySelector(".product-price");
-  const originalText = priceValueEl.textContent;
-  priceValueEl.textContent = "...";
-
-  try {
-    const res = await fetch(`/api/aliexpress-region-price/${encodeURIComponent(itemId)}?region=${region}`);
-    const info = await res.json();
-
-    if (!info.ok) {
-      priceValueEl.textContent = originalText;
-      return;
-    }
-
-    const realPrice = info.promotionPrice ?? info.price;
-    if (realPrice == null) {
-      priceValueEl.textContent = originalText;
-      return;
-    }
-
-    const symbol = { USD: "$", EUR: "€", GBP: "£", AUD: "A$" }[info.currency] || "";
-    priceValueEl.textContent = `${symbol}${realPrice.toFixed(2)}`;
-
-    let badge = priceLineEl.querySelector(".discount-badge");
-    if (info.discountPercent != null) {
-      if (!badge) {
-        badge = document.createElement("span");
-        badge.className = "discount-badge";
-        priceLineEl.appendChild(badge);
-      }
-      badge.textContent = `Save ${info.discountPercent}%`;
-    } else if (badge) {
-      badge.remove();
-    }
-  } catch (e) {
-    priceValueEl.textContent = originalText;
-  }
-});
 
 function escapeHtml(str) {
   const div = document.createElement("div");

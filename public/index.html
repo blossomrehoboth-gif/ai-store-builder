@@ -19,7 +19,7 @@
   <aside class="rail">
     <div>
       <p class="eyebrow">Store builder</p>
-      <h1 class="headline">Describe what you sell.<br />See a storefront take shape.</h1>
+      <h1 class="headline">Describe what you sell.<br />See a product page take shape.</h1>
     </div>
 
     <form id="builder-form" class="fields">
@@ -57,17 +57,17 @@
     </div>
 
     <p class="footnote">
-      This calls Groq to draft a name, copy, and three sample products, then
-      generates AI images for the hero and each product. Nothing here is
-      saved — treat it as a first draft to edit and connect to real products
-      afterward.
+      This calls Groq to draft a full product landing page: headline,
+      pricing, feature checklist, comparison table, usage guide, and
+      sample reviews. Treat it as a first draft — reviews and prices
+      shown here are AI-written placeholders, not real customer data.
     </p>
   </aside>
 
   <!-- Preview canvas -->
   <main class="canvas">
     <div id="empty-state" class="empty-state">
-      <p>Fill in the product and tone on the left, then generate. Your storefront preview will appear here.</p>
+      <p>Fill in the product and tone on the left, then generate. Your product page preview will appear here.</p>
     </div>
 
     <div id="loading-state" class="loading-state" hidden>
@@ -93,33 +93,54 @@
         <span class="store-cart">🛒</span>
       </nav>
 
-      <!-- AI-designed layout goes here when it succeeds; falls back to
-           the fixed template below if the AI layout call fails. -->
-      <div id="ai-layout-container" hidden></div>
-
-      <div id="fixed-template">
-        <!-- Product image gallery (no text on the image itself) -->
-        <div id="hero-section" class="gallery-section">
-          <img id="hero-image" class="gallery-main-image" src="" alt="" />
-        </div>
-
-        <div id="hero-thumbs" class="hero-thumbs" hidden></div>
-
-        <div class="store-body">
-          <p id="store-tagline" class="store-tagline-plain"></p>
-          <p id="store-rating" class="store-rating" hidden></p>
-
-          <h3 class="section-label">Featured products</h3>
-          <div id="product-list" class="product-grid"></div>
-
-          <div id="ad-box" class="ad-box" hidden>
-            <p class="ad-label">Ad idea</p>
-            <p id="ad-line" class="ad-line"></p>
-          </div>
-        </div>
+      <!-- Hero image gallery -->
+      <div id="hero-section" class="gallery-section">
+        <img id="hero-image" class="gallery-main-image" src="" alt="" />
       </div>
+      <div id="hero-thumbs" class="hero-thumbs" hidden></div>
 
       <div class="store-body">
+        <p id="store-tagline" class="store-tagline-plain"></p>
+        <h1 id="store-hero" class="store-hero-plain"></h1>
+
+        <div class="price-row">
+          <span id="price" class="price"></span>
+          <span id="original-price" class="original-price"></span>
+          <span id="discount-badge" class="discount-badge"></span>
+        </div>
+
+        <button type="button" class="shop-now-btn">Shop now</button>
+
+        <ul id="feature-checklist" class="feature-checklist"></ul>
+
+        <p id="store-story" class="store-story"></p>
+
+        <!-- Why choose us comparison table -->
+        <div id="comparison-section" class="comparison-section" hidden>
+          <h3 class="section-label">Why choose us</h3>
+          <table id="comparison-table" class="comparison-table"></table>
+        </div>
+
+        <!-- Usage steps -->
+        <div id="usage-section" class="usage-section" hidden>
+          <h3 class="section-label">How it works</h3>
+          <div id="usage-steps" class="usage-steps"></div>
+        </div>
+
+        <h3 class="section-label">Featured products</h3>
+        <div id="product-list" class="product-grid"></div>
+
+        <!-- Customer reviews -->
+        <div id="reviews-section" class="reviews-section" hidden>
+          <h3 class="section-label">Customer reviews</h3>
+          <div id="reviews-list" class="reviews-list"></div>
+        </div>
+
+        <div id="ad-box" class="ad-box" hidden>
+          <p class="ad-label">Ad idea</p>
+          <p id="ad-line" class="ad-line"></p>
+        </div>
+
         <div id="publish-box" class="ad-box">
           <p class="ad-label">Publish to Shopify</p>
           <label class="field" style="margin-bottom: 8px;">
