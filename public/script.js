@@ -79,7 +79,9 @@ async function generateStore() {
 
   const aiContainerReset = document.getElementById("ai-layout-container");
   aiContainerReset.hidden = true;
-  aiContainerReset.innerHTML = "";
+  if (aiContainerReset.shadowRoot) {
+    aiContainerReset.shadowRoot.innerHTML = "";
+  }
   document.getElementById("fixed-template").hidden = false;
 
   try {
@@ -170,7 +172,12 @@ async function generateStore() {
 
       if (layoutRes.ok && layoutData.html) {
         const aiContainer = document.getElementById("ai-layout-container");
-        aiContainer.innerHTML = layoutData.html;
+        // Shadow DOM keeps the AI's CSS completely sealed inside this
+        // container — generic selectors like "h1" or "body" in its
+        // <style> block cannot leak out and affect the rest of the
+        // page (like the input panel on the left).
+        const shadow = aiContainer.shadowRoot || aiContainer.attachShadow({ mode: "open" });
+        shadow.innerHTML = layoutData.html;
         aiContainer.hidden = false;
         document.getElementById("fixed-template").hidden = true;
       }
