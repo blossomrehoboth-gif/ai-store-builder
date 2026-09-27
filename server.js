@@ -310,33 +310,6 @@ app.get('/api/aliexpress/:itemId', async (req, res) => {
 // per listing: photo, price, original price, star rating, and units sold
 // — not just a bag of image URLs. Any listing missing a field just omits
 // that field; the frontend fills in an AI-written fallback for price.
-// Fallback for when item.image isn't where we expect it — searches
-// that single item's own data for any URL that looks like a photo.
-// Scoped per-item so it can never mix up one product's photo with
-// another's price/rating.
-function findAnyImageUrl(node, depth) {
-  if (depth > 5 || !node || typeof node !== 'object') return null;
-  if (Array.isArray(node)) {
-    for (const v of node) {
-      const found = findAnyImageUrl(v, depth + 1);
-      if (found) return found;
-    }
-    return null;
-  }
-  for (const value of Object.values(node)) {
-    if (typeof value === 'string' && /\.(jpe?g|png|webp)(\?|$)/i.test(value) && (value.startsWith('http') || value.startsWith('//'))) {
-      return value.startsWith('//') ? 'https:' + value : value;
-    }
-  }
-  for (const value of Object.values(node)) {
-    if (value && typeof value === 'object') {
-      const found = findAnyImageUrl(value, depth + 1);
-      if (found) return found;
-    }
-  }
-  return null;
-}
-
 function parseAliItems(data) {
   const list = data?.result?.resultList || [];
   return list
@@ -345,14 +318,13 @@ function parseAliItems(data) {
       if (!item?.itemId) return null;
 
       const def = item?.sku?.def || {};
-      const rating = item.averageStarRate != null ? parseFloat(item.averageStarRate) : (def.averageStarRate != null ? parseFloat(def.averageStarRate) : null);
+      const rating = def.averageStarRate != null ? parseFloat(def.averageStarRate) : null;
       const promotionPrice = def.promotionPrice != null ? parseFloat(def.promotionPrice) : null;
       const listPrice = def.price != null ? parseFloat(def.price) : null;
       const sold = item.sales != null ? parseInt(String(item.sales).replace(/[^0-9]/g, ''), 10) : null;
 
       let image = item.image;
       if (typeof image === 'string' && image.startsWith('//')) image = 'https:' + image;
-      if (!image) image = findAnyImageUrl(item, 0);
 
       return {
         itemId: item.itemId,
@@ -370,6 +342,7 @@ function parseAliItems(data) {
 app.get('/api/aliexpress-search', async (req, res) => {
   try {
     const q = req.query.q || 'phone charger';
+    const debug = req.query.debug === '1';
     const url = `https://aliexpress-datahub.p.rapidapi.com/item_search_2?q=${encodeURIComponent(q)}&page=1&sort=default`;
 
     const response = await fetch(url, {
@@ -380,21 +353,23 @@ app.get('/api/aliexpress-search', async (req, res) => {
     });
 
     if (!response.ok) {
+      const detail = await response.text();
+      if (debug) return res.json({ items: [], debug_stage: 'not_ok', debug_status: response.status, debug_detail: detail });
       return res.json({ items: [] });
     }
 
     const data = await response.json();
 
     if (data?.result?.status?.data === 'error') {
+      if (debug) return res.json({ items: [], debug_stage: 'api_error', debug_raw: data });
       return res.json({ items: [] });
     }
 
     const items = parseAliItems(data);
-    console.log(
-      `AliExpress search "${q}" -> ${items.length} items, ${items.filter((it) => it.image).length} with photos, ${items.filter((it) => !it.image).length} without`
-    );
+    if (debug) return res.json({ items, debug_stage: 'ok', debug_raw_keys: Object.keys(data || {}), debug_result_list_length: (data?.result?.resultList || []).length, debug_raw_sample: data });
     return res.json({ items });
   } catch (err) {
+    if (req.query.debug === '1') return res.json({ items: [], debug_stage: 'exception', debug_error: String(err) });
     res.json({ items: [] });
   }
 });
