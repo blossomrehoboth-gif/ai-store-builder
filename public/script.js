@@ -110,7 +110,7 @@ async function generateStore() {
       const itemRes = await fetch(`/api/aliexpress-item/${itemId}`);
       const itemData = await itemRes.json();
       if (!itemData.ok || !itemData.item) {
-        throw new Error("Could not read that AliExpress product.");
+        throw new Error("AliExpress did not return details for that product (it may not be available in the data source). Try a different AliExpress product link.");
       }
       linkedItem = itemData.item;
       product = (linkedItem.title || "AliExpress product").slice(0, 90);

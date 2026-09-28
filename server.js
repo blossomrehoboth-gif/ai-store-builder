@@ -388,18 +388,29 @@ app.get('/api/aliexpress-item/:itemId', async (req, res) => {
     const itemId = String(req.params.itemId).replace(/\D/g, '');
     if (!itemId) return res.json({ ok: false, reason: 'bad-id' });
 
-    const url = `https://aliexpress-datahub.p.rapidapi.com/item_detail?itemId=${itemId}&region=US&currency=USD&locale=en_US`;
-    const response = await fetch(url, {
-      headers: {
-        'x-rapidapi-key': process.env.ALIEXPRESS_API_KEY,
-        'x-rapidapi-host': 'aliexpress-datahub.p.rapidapi.com',
-      },
-    });
-    const data = await response.json();
-
-    if (!response.ok || data?.result?.status?.data === 'error') {
-      console.log(`AliExpress item ${itemId} -> API error:`, JSON.stringify(data?.result?.status || data).slice(0, 300));
-      return res.json({ ok: false, reason: 'api-error' });
+    // Some products only exist in certain regional catalogs, so try a
+    // few variations before giving up (each failed try is logged).
+    const attempts = [
+      `item_detail?itemId=${itemId}&region=US&currency=USD&locale=en_US`,
+      `item_detail?itemId=${itemId}`,
+      `item_detail?itemId=${itemId}&region=NG&currency=USD&locale=en_US`,
+      `item_detail_6?itemId=${itemId}&region=US&currency=USD&locale=en_US`,
+      `item_detail_6?itemId=${itemId}`,
+    ];
+    let data = null;
+    for (const path of attempts) {
+      const response = await fetch(`https://aliexpress-datahub.p.rapidapi.com/${path}`, {
+        headers: {
+          'x-rapidapi-key': process.env.ALIEXPRESS_API_KEY,
+          'x-rapidapi-host': 'aliexpress-datahub.p.rapidapi.com',
+        },
+      });
+      const d = await response.json();
+      if (d?.result?.item) { data = d; console.log(`AliExpress item ${itemId} found via ${path.split('?')[0]} (${path.includes('region') ? path.match(/region=(\w+)/)[1] : 'no region'})`); break; }
+      console.log(`AliExpress item ${itemId} try "${path}" -> ${JSON.stringify(d?.result?.status?.msg || d?.message || d).slice(0, 160)}`);
+    }
+    if (!data) {
+      return res.json({ ok: false, reason: 'not-found' });
     }
 
     const item = data?.result?.item;
