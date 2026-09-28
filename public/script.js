@@ -61,6 +61,21 @@ startOverBtn.addEventListener("click", () => {
   emptyState.hidden = false;
 });
 
+// Pulls the numeric AliExpress product ID out of a link, if it's there.
+function extractAliItemId(text) {
+  const patterns = [
+    /item\/(\d{8,})/i,
+    /[?&](?:itemId|productId|productIds|item_id)=(\d{8,})/i,
+    /x_object_id(?:%3A|:)(\d{8,})/i,
+    /\/(\d{13,})\.html/i,
+  ];
+  for (const p of patterns) {
+    const m = String(text).match(p);
+    if (m) return m[1];
+  }
+  return null;
+}
+
 async function generateStore() {
   const linkText = aliLinkInput.value.trim();
   const rawInput = productInput.value.trim() || linkText;
@@ -76,12 +91,22 @@ async function generateStore() {
     let linkedItem = null;
     let product = rawInput;
     const linkSource = linkText || rawInput;
-    const linkMatch = /aliexpress\.[a-z.]+/i.test(linkSource) && linkSource.match(/item\/(\d{8,})|itemId=(\d{8,})/i);
-    if (linkText && !linkMatch) {
-      throw new Error("That doesn't look like an AliExpress product link.");
+    let itemId = null;
+    if (/aliexpress\./i.test(linkSource)) {
+      itemId = extractAliItemId(linkSource);
+      if (!itemId) {
+        // Short links / campaign pages: let the server follow them.
+        try {
+          const rr = await fetch(`/api/resolve-ali-link?url=${encodeURIComponent(linkSource)}`);
+          const rd = await rr.json();
+          if (rd.ok) itemId = rd.itemId;
+        } catch (e) {}
+      }
     }
-    if (linkMatch) {
-      const itemId = linkMatch[1] || linkMatch[2];
+    if (linkText && !itemId) {
+      throw new Error("Couldn't find a product in that AliExpress link. Open the product itself on AliExpress, tap Share, copy its link, and paste that instead.");
+    }
+    if (itemId) {
       const itemRes = await fetch(`/api/aliexpress-item/${itemId}`);
       const itemData = await itemRes.json();
       if (!itemData.ok || !itemData.item) {

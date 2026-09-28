@@ -342,6 +342,47 @@ function parseAliItems(data) {
 // Fetches ONE specific AliExpress product (used when the seller pastes
 // a product link instead of a niche word). Never invents data — any
 // field we can't find comes back null.
+// Follows AliExpress short/campaign links (only AliExpress hosts) to
+// find the numeric product ID inside.
+app.get('/api/resolve-ali-link', async (req, res) => {
+  try {
+    let url = String(req.query.url || '');
+    const okHost = (u) => {
+      try { return /(^|\.)aliexpress\.(com|us|ru)$/i.test(new URL(u).hostname); } catch (e) { return false; }
+    };
+    const pats = [
+      /item\/(\d{8,})/i,
+      /[?&](?:itemId|productId|productIds|item_id)=(\d{8,})/i,
+      /x_object_id(?:%3A|:)(\d{8,})/i,
+      /\/(\d{13,})\.html/i,
+    ];
+    const findId = (t) => {
+      for (const p of pats) { const m = String(t).match(p); if (m) return m[1]; }
+      return null;
+    };
+    if (!okHost(url)) return res.json({ ok: false });
+    let id = findId(url);
+    if (id) return res.json({ ok: true, itemId: id });
+
+    for (let hop = 0; hop < 5; hop++) {
+      const r = await fetch(url, { redirect: 'manual', headers: { 'user-agent': 'Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Chrome/120 Mobile Safari/537.36' } });
+      const loc = r.headers.get('location');
+      if (r.status >= 300 && r.status < 400 && loc) {
+        url = new URL(loc, url).toString();
+        if (!okHost(url)) break;
+        id = findId(url);
+        if (id) return res.json({ ok: true, itemId: id });
+        continue;
+      }
+      id = findId((await r.text()).slice(0, 300000));
+      return res.json(id ? { ok: true, itemId: id } : { ok: false });
+    }
+    res.json({ ok: false });
+  } catch (err) {
+    res.json({ ok: false });
+  }
+});
+
 app.get('/api/aliexpress-item/:itemId', async (req, res) => {
   try {
     const itemId = String(req.params.itemId).replace(/\D/g, '');
