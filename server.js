@@ -339,6 +339,69 @@ function parseAliItems(data) {
     .filter(Boolean);
 }
 
+// Fetches ONE specific AliExpress product (used when the seller pastes
+// a product link instead of a niche word). Never invents data — any
+// field we can't find comes back null.
+app.get('/api/aliexpress-item/:itemId', async (req, res) => {
+  try {
+    const itemId = String(req.params.itemId).replace(/\D/g, '');
+    if (!itemId) return res.json({ ok: false, reason: 'bad-id' });
+
+    const url = `https://aliexpress-datahub.p.rapidapi.com/item_detail?itemId=${itemId}&region=US&currency=USD&locale=en_US`;
+    const response = await fetch(url, {
+      headers: {
+        'x-rapidapi-key': process.env.ALIEXPRESS_API_KEY,
+        'x-rapidapi-host': 'aliexpress-datahub.p.rapidapi.com',
+      },
+    });
+    const data = await response.json();
+
+    if (!response.ok || data?.result?.status?.data === 'error') {
+      console.log(`AliExpress item ${itemId} -> API error:`, JSON.stringify(data?.result?.status || data).slice(0, 300));
+      return res.json({ ok: false, reason: 'api-error' });
+    }
+
+    const item = data?.result?.item;
+    if (!item) {
+      console.log(`AliExpress item ${itemId} -> no item. Result keys:`, Object.keys(data?.result || {}));
+      return res.json({ ok: false, reason: 'no-item' });
+    }
+
+    const fixUrl = (u) => (typeof u === 'string' ? (u.startsWith('//') ? 'https:' + u : u) : null);
+    let images = (Array.isArray(item.images) ? item.images : []).map(fixUrl).filter(Boolean);
+    if (images.length === 0) {
+      const one = fixUrl(item.image) || findAnyImageUrl(item, 0);
+      if (one) images = [one];
+    }
+
+    const def = item?.sku?.def || {};
+    const promo = def.promotionPrice != null ? parseFloat(def.promotionPrice) : null;
+    const list = def.price != null ? parseFloat(def.price) : null;
+    const ratingRaw = item.averageStarRate ?? item.reviews?.averageStar ?? item.reviews?.averageStarRate ?? null;
+    const rating = ratingRaw != null ? parseFloat(ratingRaw) : null;
+    const sold = item.sales != null ? parseInt(String(item.sales).replace(/[^0-9]/g, ''), 10) : null;
+
+    console.log(`AliExpress item ${itemId} -> ${images.length} photos, price ${promo ?? list}, rating ${rating}. Item keys:`, Object.keys(item));
+
+    return res.json({
+      ok: true,
+      item: {
+        itemId,
+        title: item.title || null,
+        image: images[0] || null,
+        images: images.slice(0, 6),
+        price: Number.isFinite(promo) ? promo : Number.isFinite(list) ? list : null,
+        originalPrice: Number.isFinite(list) ? list : null,
+        rating: Number.isFinite(rating) ? rating : null,
+        sold: Number.isFinite(sold) ? sold : null,
+      },
+    });
+  } catch (err) {
+    console.error(err);
+    res.json({ ok: false, reason: 'exception' });
+  }
+});
+
 app.get('/api/aliexpress-search', async (req, res) => {
   try {
     const q = req.query.q || 'phone charger';

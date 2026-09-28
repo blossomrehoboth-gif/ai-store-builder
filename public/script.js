@@ -1,5 +1,6 @@
 const form = document.getElementById("builder-form");
 const productInput = document.getElementById("product");
+const aliLinkInput = document.getElementById("ali-link");
 const audienceInput = document.getElementById("audience");
 const toneGroup = document.getElementById("tone-group");
 const generateBtn = document.getElementById("generate-btn");
@@ -48,6 +49,7 @@ regenerateBtn.addEventListener("click", generateStore);
 
 startOverBtn.addEventListener("click", () => {
   productInput.value = "";
+  aliLinkInput.value = "";
   audienceInput.value = "";
   selectedTone = "Premium";
   toneGroup.querySelectorAll(".tone-btn").forEach((b) => b.classList.remove("active"));
@@ -60,14 +62,35 @@ startOverBtn.addEventListener("click", () => {
 });
 
 async function generateStore() {
-  const product = productInput.value.trim();
-  if (!product || loading) return;
+  const linkText = aliLinkInput.value.trim();
+  const rawInput = productInput.value.trim() || linkText;
+  if (!rawInput || loading) return;
 
   loading = true;
   setLoadingUI(true);
   errorMsg.hidden = true;
 
   try {
+    // If the seller pasted an AliExpress product link, build the store
+    // around that exact product using its real photos, price, rating.
+    let linkedItem = null;
+    let product = rawInput;
+    const linkSource = linkText || rawInput;
+    const linkMatch = /aliexpress\.[a-z.]+/i.test(linkSource) && linkSource.match(/item\/(\d{8,})|itemId=(\d{8,})/i);
+    if (linkText && !linkMatch) {
+      throw new Error("That doesn't look like an AliExpress product link.");
+    }
+    if (linkMatch) {
+      const itemId = linkMatch[1] || linkMatch[2];
+      const itemRes = await fetch(`/api/aliexpress-item/${itemId}`);
+      const itemData = await itemRes.json();
+      if (!itemData.ok || !itemData.item) {
+        throw new Error("Could not read that AliExpress product.");
+      }
+      linkedItem = itemData.item;
+      product = (linkedItem.title || "AliExpress product").slice(0, 90);
+    }
+
     const response = await fetch("/api/generate", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -82,6 +105,18 @@ async function generateStore() {
 
     if (!response.ok || data.error) {
       throw new Error(data.error || "Request failed");
+    }
+
+    if (linkedItem) {
+      const first = (data.products || [])[0] || { name: data.storeName, description: data.tagline };
+      first.price = linkedItem.price != null ? `$${linkedItem.price.toFixed(2)}` : first.price;
+      data.products = [first];
+      const heroImgs = linkedItem.images && linkedItem.images.length ? linkedItem.images : [linkedItem.image].filter(Boolean);
+      renderStore(data, heroImgs, [linkedItem]);
+      data.sourceNiche = product;
+      currentStore = data;
+      postActions.hidden = false;
+      return;
     }
 
     // Real AliExpress data: photo, price, rating, sold — per listing.
@@ -127,8 +162,9 @@ async function generateStore() {
     currentStore = data;
     postActions.hidden = false;
   } catch (err) {
-    errorMsg.textContent =
-      "Couldn't build the store from that input. Try rephrasing the product or niche and generate again.";
+    errorMsg.textContent = /AliExpress/.test(err.message || "")
+      ? err.message
+      : "Couldn't build the store from that input. Try rephrasing the product or niche and generate again.";
     errorMsg.hidden = false;
     emptyState.hidden = storePreview.hidden ? false : true;
   } finally {
