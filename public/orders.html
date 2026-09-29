@@ -22,12 +22,17 @@
   .no-ali { font-size: 0.8rem; color: #b23b3b; }
   button.fulfill-btn { margin-top: 10px; width: 100%; padding: 10px; border: none; border-radius: 8px; background: #8C6A30; color: #fff; font-weight: 600; }
   button.fulfill-btn:disabled { background: #cfc6b2; }
+  button.autoorder-btn { margin-top: 8px; width: 100%; padding: 10px; border: none; border-radius: 8px; background: #2A5DB0; color: #fff; font-weight: 600; }
+  button.autoorder-btn:disabled { background: #b9c8e6; }
+  .autoorder-result { font-size: 0.8rem; margin-top: 6px; padding: 8px; border-radius: 6px; white-space: pre-line; }
+  .autoorder-result.ok { background: #e6f2e6; color: #1e5c1e; }
+  .autoorder-result.fail { background: #fbe9e7; color: #a6392e; }
   .empty { text-align: center; color: #8a8072; margin-top: 60px; }
 </style>
 </head>
 <body>
   <h1>Orders to fulfill</h1>
-  <p class="sub">Real orders from your Shopify store. Tap the AliExpress link, paste the address, and check out — then mark it fulfilled.</p>
+  <p class="sub">Real orders from your Shopify store. Use "Auto-order from AliExpress" to place the supplier order automatically, or tap the AliExpress link to do it yourself — then mark it fulfilled.</p>
 
   <button id="check-prices-btn" style="width:100%;padding:12px;border:none;border-radius:8px;background:#2E7D32;color:#fff;font-weight:600;margin-bottom:20px;">
     Check AliExpress prices & stock
@@ -67,6 +72,18 @@ async function load() {
       </div>
     `).join('');
 
+    const hasAliItems = (o.lineItems || []).some((li) => li.aliLink);
+
+    // If a previous auto-order attempt was made, show what happened.
+    let resultHtml = '';
+    if (o.autoOrderResults && o.autoOrderResults.length) {
+      const allOk = o.autoOrderResults.every((r) => r.success);
+      const lines = o.autoOrderResults
+        .map((r) => `${r.title}: ${r.success ? (r.message || 'placed') : (r.message || r.reason)}`)
+        .join('\\n');
+      resultHtml = `<div class="autoorder-result ${allOk ? 'ok' : 'fail'}">${lines}</div>`;
+    }
+
     div.innerHTML = `
       <div class="order-top">
         <span class="order-num">Order ${o.orderNumber}</span>
@@ -75,6 +92,8 @@ async function load() {
       <div class="customer">${o.customerName}</div>
       <div class="address">${addr}</div>
       ${itemsHtml}
+      ${!o.fulfilled && hasAliItems ? `<button class="autoorder-btn" data-id="${o.orderId}">Auto-order from AliExpress</button>` : ''}
+      ${resultHtml}
       <button class="fulfill-btn" data-id="${o.orderId}" ${o.fulfilled ? 'disabled' : ''}>
         ${o.fulfilled ? 'Marked fulfilled' : 'Mark as fulfilled'}
       </button>
@@ -87,6 +106,20 @@ async function load() {
       btn.disabled = true;
       btn.textContent = 'Marking...';
       await fetch(`/api/orders/${btn.dataset.id}/fulfilled`, { method: 'POST' });
+      load();
+    });
+  });
+
+  list.querySelectorAll('.autoorder-btn').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      btn.disabled = true;
+      btn.textContent = 'Placing order on AliExpress...';
+      try {
+        const res = await fetch(`/api/orders/${btn.dataset.id}/auto-order`, { method: 'POST' });
+        await res.json();
+      } catch (e) {
+        // fall through — load() will still refresh and show current state
+      }
       load();
     });
   });
