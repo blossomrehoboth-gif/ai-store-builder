@@ -135,6 +135,8 @@ async function generateStore() {
     if (linkedItem) {
       const first = (data.products || [])[0] || { name: data.storeName, description: data.tagline };
       first.price = linkedItem.price != null ? `$${linkedItem.price.toFixed(2)}` : first.price;
+      first.aliItemId = linkedItem.itemId || null;
+      first.aliImage = linkedItem.image || null;
       data.products = [first];
       const heroImgs = linkedItem.images && linkedItem.images.length ? linkedItem.images : [linkedItem.image].filter(Boolean);
       renderStore(data, heroImgs, [linkedItem]);
@@ -179,6 +181,12 @@ async function generateStore() {
       const real = perProduct[i];
       if (real?.price != null) {
         p.price = `$${real.price.toFixed(2)}`;
+      }
+      // Carried through to Shopify so a real order can be matched back
+      // to the exact AliExpress listing for fulfillment.
+      if (real?.itemId) {
+        p.aliItemId = real.itemId;
+        p.aliImage = real.image || null;
       }
     });
 

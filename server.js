@@ -11,7 +11,10 @@ const crypto = require('crypto');
 require('dotenv').config();
 
 const app = express();
-app.use(express.json());
+app.use((req, res, next) => {
+  if (req.path === '/webhooks/orders-create') return next();
+  express.json()(req, res, next);
+});
 app.use(express.static(path.join(__dirname, 'public')));
 
 const GROQ_API_KEY = process.env.GROQ_API_KEY;
@@ -124,6 +127,11 @@ const SHOPIFY_SCOPES = 'read_products,write_products';
 const APP_URL = (process.env.APP_URL || '').replace(/\/$/, '');
 
 const shopTokens = new Map();
+// Shopify product id -> { aliItemId, aliImage, title } so a real order
+// can be matched back to the exact AliExpress listing to fulfill.
+const productAliMap = new Map();
+// In-memory list of orders seen via webhook, newest first.
+const incomingOrders = [];
 const pendingStates = new Map();
 
 function validShop(shop) {
@@ -193,6 +201,106 @@ app.get('/auth/callback', async (req, res) => {
   }
 });
 // ---------- end Shopify install / OAuth ----------
+
+// ---------- Order fulfillment ----------
+// Registers a webhook so Shopify tells us immediately when a real
+// order is placed. Safe to call every publish — Shopify just returns
+// the existing one if it's already registered for this topic/address.
+async function ensureOrderWebhook(shop, token) {
+  try {
+    const apiVersion = '2024-10';
+    const address = `${APP_URL}/webhooks/orders-create`;
+    const r = await fetch(`https://${shop}/admin/api/${apiVersion}/graphql.json`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Shopify-Access-Token': token },
+      body: JSON.stringify({
+        query: `mutation webhookSubscriptionCreate($topic: WebhookSubscriptionTopic!, $webhookSubscription: WebhookSubscriptionInput!) {
+          webhookSubscriptionCreate(topic: $topic, webhookSubscription: $webhookSubscription) {
+            webhookSubscription { id }
+            userErrors { field message }
+          }
+        }`,
+        variables: {
+          topic: 'ORDERS_CREATE',
+          webhookSubscription: { callbackUrl: address, format: 'JSON' },
+        },
+      }),
+    });
+    const data = await r.json();
+    const errs = data?.data?.webhookSubscriptionCreate?.userErrors;
+    if (errs && errs.length && !errs.some((e) => /already/i.test(e.message))) {
+      console.error('Webhook registration issue:', errs);
+    }
+  } catch (err) {
+    console.error('Could not register order webhook:', err);
+  }
+}
+
+// Verifies the request really came from Shopify, not someone else
+// pretending to be Shopify.
+function validWebhookHmac(rawBody, hmacHeader) {
+  if (!hmacHeader) return false;
+  const digest = crypto.createHmac('sha256', SHOPIFY_API_SECRET).update(rawBody).digest('base64');
+  try {
+    return crypto.timingSafeEqual(Buffer.from(digest), Buffer.from(hmacHeader));
+  } catch (e) {
+    return false;
+  }
+}
+
+// Shopify posts here the moment a customer completes a real order.
+// Raw body is needed (not the parsed JSON) to check the signature.
+app.post('/webhooks/orders-create', express.raw({ type: 'application/json' }), (req, res) => {
+  try {
+    const hmac = req.get('X-Shopify-Hmac-Sha256');
+    if (!validWebhookHmac(req.body, hmac)) {
+      return res.status(401).send('Invalid signature.');
+    }
+    const shop = req.get('X-Shopify-Shop-Domain');
+    const order = JSON.parse(req.body.toString('utf8'));
+
+    const lineItems = (order.line_items || []).map((li) => {
+      const mapped = productAliMap.get(`gid://shopify/Product/${li.product_id}`);
+      return {
+        title: li.title,
+        quantity: li.quantity,
+        aliItemId: mapped?.aliItemId || null,
+        aliLink: mapped?.aliItemId ? `https://www.aliexpress.com/item/${mapped.aliItemId}.html` : null,
+        aliImage: mapped?.aliImage || null,
+      };
+    });
+
+    incomingOrders.unshift({
+      shop,
+      orderId: order.id,
+      orderNumber: order.order_number || order.name,
+      receivedAt: new Date().toISOString(),
+      customerName: [order.shipping_address?.first_name, order.shipping_address?.last_name].filter(Boolean).join(' ') || order.customer?.first_name || 'Customer',
+      address: order.shipping_address || null,
+      lineItems,
+      fulfilled: false,
+    });
+    if (incomingOrders.length > 200) incomingOrders.length = 200;
+
+    console.log(`New order #${order.order_number} from ${shop} — ${lineItems.length} item(s)`);
+    res.status(200).send('ok');
+  } catch (err) {
+    console.error('Webhook handling error:', err);
+    res.status(200).send('ok'); // still 200 so Shopify doesn't retry forever
+  }
+});
+
+// Simple page + API for you to see orders that need fulfilling.
+app.get('/api/orders', (req, res) => {
+  res.json({ orders: incomingOrders });
+});
+
+app.post('/api/orders/:orderId/fulfilled', (req, res) => {
+  const order = incomingOrders.find((o) => String(o.orderId) === req.params.orderId);
+  if (order) order.fulfilled = true;
+  res.json({ ok: !!order });
+});
+// ---------- end order fulfillment ----------
 
 // ---------- Publish generated concept to Shopify ----------
 app.post('/api/publish', async (req, res) => {
@@ -271,8 +379,20 @@ app.post('/api/publish', async (req, res) => {
         );
       }
 
+      if (product?.id && p.aliItemId) {
+        productAliMap.set(product.id, {
+          aliItemId: p.aliItemId,
+          aliImage: p.aliImage || null,
+          title: p.name,
+        });
+      }
+
       results.push({ name: p.name, ok: true, id: product?.id });
     }
+
+    // Make sure this shop is set up to notify us the moment a real
+    // order comes in, so fulfillment info shows up automatically.
+    await ensureOrderWebhook(shop, token);
 
     res.json({ results });
   } catch (err) {
