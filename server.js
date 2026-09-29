@@ -17,6 +17,11 @@ app.use((req, res, next) => {
 });
 app.use(express.static(path.join(__dirname, 'public')));
 
+// Clean URL for the orders page (the file itself is public/orders.html).
+app.get('/orders', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'orders.html'));
+});
+
 const GROQ_API_KEY = process.env.GROQ_API_KEY;
 const PORT = process.env.PORT || 3000;
 
