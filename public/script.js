@@ -2,6 +2,7 @@ const form = document.getElementById("builder-form");
 const productInput = document.getElementById("product");
 const aliLinkInput = document.getElementById("ali-link");
 const audienceInput = document.getElementById("audience");
+const storeNameInput = document.getElementById("store-name-input");
 const toneGroup = document.getElementById("tone-group");
 const generateBtn = document.getElementById("generate-btn");
 const generateIcon = document.getElementById("generate-icon");
@@ -50,6 +51,7 @@ regenerateBtn.addEventListener("click", generateStore);
 startOverBtn.addEventListener("click", () => {
   productInput.value = "";
   aliLinkInput.value = "";
+  storeNameInput.value = "";
   audienceInput.value = "";
   selectedTone = "Premium";
   toneGroup.querySelectorAll(".tone-btn").forEach((b) => b.classList.remove("active"));
@@ -137,7 +139,11 @@ async function generateStore() {
       first.price = linkedItem.price != null ? `$${linkedItem.price.toFixed(2)}` : first.price;
       first.aliItemId = linkedItem.itemId || null;
       first.aliImage = linkedItem.image || null;
+      first.aliPrice = linkedItem.price != null ? linkedItem.price : null;
       data.products = [first];
+      if (storeNameInput.value.trim()) {
+        data.storeName = storeNameInput.value.trim();
+      }
       const heroImgs = linkedItem.images && linkedItem.images.length ? linkedItem.images : [linkedItem.image].filter(Boolean);
       renderStore(data, heroImgs, [linkedItem]);
       data.sourceNiche = product;
@@ -187,8 +193,13 @@ async function generateStore() {
       if (real?.itemId) {
         p.aliItemId = real.itemId;
         p.aliImage = real.image || null;
+        p.aliPrice = real.price != null ? real.price : null;
       }
     });
+
+    if (storeNameInput.value.trim()) {
+      data.storeName = storeNameInput.value.trim();
+    }
 
     renderStore(data, heroImages, perProduct);
     data.sourceNiche = product;

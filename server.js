@@ -290,7 +290,95 @@ app.post('/webhooks/orders-create', express.raw({ type: 'application/json' }), (
   }
 });
 
-// Simple page + API for you to see orders that need fulfilling.
+// ---------- Price & inventory monitoring ----------
+// Manual-trigger only (you tap a button) — not on a timer, since
+// checking many products automatically would burn through the
+// AliExpress API quota fast.
+app.post('/api/check-prices', async (req, res) => {
+  try {
+    const results = [];
+    const entries = [...productAliMap.entries()];
+
+    for (const [shopifyProductId, info] of entries) {
+      const token = shopTokens.get(info.shop);
+      if (!token) {
+        results.push({ title: info.title, ok: false, reason: 'shop-not-connected' });
+        continue;
+      }
+
+      const url = `https://aliexpress-datahub.p.rapidapi.com/item_detail?itemId=${info.aliItemId}&region=US&currency=USD&locale=en_US`;
+      const r = await fetch(url, {
+        headers: {
+          'x-rapidapi-key': process.env.ALIEXPRESS_API_KEY,
+          'x-rapidapi-host': 'aliexpress-datahub.p.rapidapi.com',
+        },
+      });
+      const data = await r.json();
+      const item = data?.result?.item;
+      if (!item) {
+        results.push({ title: info.title, ok: false, reason: 'not-found' });
+        continue;
+      }
+
+      const def = item?.sku?.def || {};
+      const newAliPrice = def.promotionPrice != null ? parseFloat(def.promotionPrice) : def.price != null ? parseFloat(def.price) : null;
+      const inStock = item.inventory != null ? item.inventory > 0 : (item.quantity != null ? item.quantity > 0 : null);
+
+      info.lastCheckedAt = new Date().toISOString();
+      info.inStock = inStock;
+
+      if (newAliPrice == null || info.lastKnownAliPrice == null) {
+        info.lastKnownAliPrice = newAliPrice;
+        results.push({ title: info.title, ok: true, changed: false, inStock });
+        continue;
+      }
+
+      const priceChanged = Math.abs(newAliPrice - info.lastKnownAliPrice) > 0.01;
+      if (priceChanged && info.variantId && info.shopifyPrice != null) {
+        // Keep the same markup: shift Shopify's price by the same
+        // dollar amount the AliExpress price moved.
+        const delta = newAliPrice - info.lastKnownAliPrice;
+        const newShopifyPrice = Math.max(0.01, info.shopifyPrice + delta);
+
+        const graphqlUrl = `https://${info.shop}/admin/api/2024-10/graphql.json`;
+        await fetch(graphqlUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-Shopify-Access-Token': token },
+          body: JSON.stringify({
+            query: `mutation productVariantsBulkUpdate($productId: ID!, $variants: [ProductVariantsBulkInput!]!) {
+              productVariantsBulkUpdate(productId: $productId, variants: $variants) {
+                userErrors { field message }
+              }
+            }`,
+            variables: {
+              productId: shopifyProductId,
+              variants: [{ id: info.variantId, price: newShopifyPrice.toFixed(2) }],
+            },
+          }),
+        });
+
+        info.shopifyPrice = newShopifyPrice;
+        info.lastKnownAliPrice = newAliPrice;
+        results.push({ title: info.title, ok: true, changed: true, oldAliPrice: info.lastKnownAliPrice, newAliPrice, newShopifyPrice, inStock });
+      } else {
+        results.push({ title: info.title, ok: true, changed: false, inStock });
+      }
+    }
+
+    res.json({ results });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Something went wrong checking prices.' });
+  }
+});
+
+app.get('/api/price-status', (req, res) => {
+  const items = [...productAliMap.entries()].map(([shopifyProductId, info]) => ({ shopifyProductId, ...info }));
+  res.json({ items });
+});
+// ---------- end price & inventory monitoring ----------
+
+
 app.get('/api/orders', (req, res) => {
   res.json({ orders: incomingOrders });
 });
@@ -381,9 +469,14 @@ app.post('/api/publish', async (req, res) => {
 
       if (product?.id && p.aliItemId) {
         productAliMap.set(product.id, {
+          shop,
+          variantId: variantId || null,
           aliItemId: p.aliItemId,
           aliImage: p.aliImage || null,
           title: p.name,
+          lastKnownAliPrice: p.aliPrice != null ? p.aliPrice : null,
+          shopifyPrice: p.price ? parseFloat(String(p.price).replace(/[^0-9.]/g, '')) : null,
+          lastCheckedAt: null,
         });
       }
 

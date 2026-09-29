@@ -28,6 +28,12 @@
 <body>
   <h1>Orders to fulfill</h1>
   <p class="sub">Real orders from your Shopify store. Tap the AliExpress link, paste the address, and check out — then mark it fulfilled.</p>
+
+  <button id="check-prices-btn" style="width:100%;padding:12px;border:none;border-radius:8px;background:#2E7D32;color:#fff;font-weight:600;margin-bottom:20px;">
+    Check AliExpress prices & stock
+  </button>
+  <p id="check-status" style="font-size:0.85rem;color:#57503f;margin:-14px 0 20px;"></p>
+
   <div id="list"></div>
   <div id="empty" class="empty" hidden>No orders yet.</div>
 
@@ -88,6 +94,26 @@ async function load() {
 
 load();
 setInterval(load, 15000);
+
+document.getElementById('check-prices-btn').addEventListener('click', async () => {
+  const btn = document.getElementById('check-prices-btn');
+  const status = document.getElementById('check-status');
+  btn.disabled = true;
+  btn.textContent = 'Checking... (uses AliExpress API calls)';
+  status.textContent = '';
+  try {
+    const res = await fetch('/api/check-prices', { method: 'POST' });
+    const data = await res.json();
+    const changed = (data.results || []).filter((r) => r.changed);
+    const outOfStock = (data.results || []).filter((r) => r.inStock === false);
+    status.textContent = `Checked ${data.results?.length || 0} product(s). ${changed.length} price(s) updated. ${outOfStock.length} out of stock.`;
+  } catch (e) {
+    status.textContent = 'Something went wrong checking prices.';
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Check AliExpress prices & stock';
+  }
+});
 </script>
 </body>
 </html>
