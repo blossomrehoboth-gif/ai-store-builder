@@ -269,6 +269,7 @@ app.post('/webhooks/orders-create', express.raw({ type: 'application/json' }), (
       return {
         title: li.title,
         quantity: li.quantity,
+        sku: li.sku || null,
         aliItemId: mapped?.aliItemId || null,
         aliLink: mapped?.aliItemId ? `https://www.aliexpress.com/item/${mapped.aliItemId}.html` : null,
         aliImage: mapped?.aliImage || null,
@@ -394,6 +395,7 @@ app.post('/api/orders/:orderId/fulfilled', (req, res) => {
   res.json({ ok: !!order });
 });
 // ---------- end order fulfillment ----------
+require('./cj')(app, incomingOrders); // CJ Dropshipping: auto-order route
 
 // ---------- Publish generated concept to Shopify ----------
 app.post('/api/publish', async (req, res) => {
