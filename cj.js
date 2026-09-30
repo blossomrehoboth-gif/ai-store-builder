@@ -33,6 +33,78 @@ async function cj(path, method = 'GET', body) {
   return r.json();
 }
 
+// Places a CJ order for one incoming order object (mutates it in place
+// with cjOrderId / autoOrderResults, same fields the orders.html page
+// already knows how to display). Used both automatically (right after
+// the Shopify webhook fires) and manually via the retry route below.
+async function autoOrderWithCj(order) {
+  if (order.cjOrderId) return { ok: false, error: `Already sent to CJ: ${order.cjOrderId}` };
+  if (order.cjInFlight) return { ok: false, error: 'Already in progress.' };
+  order.cjInFlight = true;
+
+  const fail = (message) => {
+    order.autoOrderResults = [{ title: 'CJ order', success: false, message }];
+    console.error(`CJ auto-order failed for order #${order.orderNumber}: ${message}`);
+    return { ok: false, error: message };
+  };
+
+  try {
+    const a = order.address;
+    if (!a) return fail('No shipping address on this order.');
+
+    // The CJ variant ID (vid) must be saved as the SKU of the Shopify product.
+    const missing = (order.lineItems || []).filter((li) => !li.sku);
+    if (missing.length || !(order.lineItems || []).length) {
+      return fail(
+        'Missing CJ vid (set it as the SKU in Shopify) for: ' +
+          missing.map((li) => li.title).join(', ')
+      );
+    }
+    const products = order.lineItems.map((li) => ({ vid: li.sku, quantity: li.quantity }));
+
+    // Pick the cheapest shipping option for this destination.
+    const freight = await cj('/logistic/freightCalculate', 'POST', {
+      startCountryCode: process.env.CJ_FROM_COUNTRY || 'CN',
+      endCountryCode: a.country_code,
+      products,
+    });
+    const options = Array.isArray(freight.data) ? freight.data : [];
+    options.sort((x, y) => Number(x.logisticPrice) - Number(y.logisticPrice));
+    if (!options.length) return fail(`CJ shipping lookup failed: ${freight.message || 'no options'}`);
+
+    const json = await cj('/shopping/order/createOrderV2', 'POST', {
+      orderNumber: String(order.orderNumber),
+      shippingCountryCode: a.country_code,
+      shippingCountry: a.country,
+      shippingProvince: a.province,
+      shippingCity: a.city,
+      shippingAddress: a.address1,
+      shippingAddress2: a.address2 || '',
+      shippingCustomerName: order.customerName,
+      shippingZip: a.zip,
+      shippingPhone: a.phone || '',
+      logisticName: options[0].logisticName,
+      fromCountryCode: process.env.CJ_FROM_COUNTRY || 'CN',
+      payType: Number(process.env.CJ_PAY_TYPE || 3), // 3 = create only, 2 = auto-pay
+      products,
+    });
+
+    if (json.result === true || json.code === 200) {
+      order.cjOrderId = json.data?.orderId || json.data?.orderNum || 'created';
+      order.autoOrderResults = [
+        { title: 'CJ order', success: true, message: `Created CJ order ${order.cjOrderId}` },
+      ];
+      console.log(`CJ auto-order placed for order #${order.orderNumber}: ${order.cjOrderId}`);
+      return { ok: true, cj: json };
+    }
+    return fail(`CJ error: ${json.message || JSON.stringify(json)}`);
+  } catch (e) {
+    return fail(`Error: ${e.message || e}`);
+  } finally {
+    order.cjInFlight = false;
+  }
+}
+
 module.exports = function registerCj(app, orders) {
   // Quick connection test: open /api/cj/balance in your browser.
   app.get('/api/cj/balance', async (req, res) => {
@@ -54,73 +126,20 @@ module.exports = function registerCj(app, orders) {
     }
   });
 
+  // Kept as a manual retry option (e.g. if the automatic attempt failed
+  // because a SKU/vid was missing at the time). Not used by any button
+  // in orders.html anymore — orders are sent to CJ automatically.
   app.post('/api/orders/:orderId/auto-order', async (req, res) => {
     const order = orders.find((o) => String(o.orderId) === req.params.orderId);
     if (!order) return res.status(404).json({ ok: false, error: 'Order not found.' });
-    if (order.cjOrderId) {
-      return res.json({ ok: false, error: `Already sent to CJ: ${order.cjOrderId}` });
-    }
-    if (order.cjInFlight) return res.json({ ok: false, error: 'Already in progress.' });
-    order.cjInFlight = true;
-
-    const fail = (message) => {
-      order.autoOrderResults = [{ title: 'CJ order', success: false, message }];
-      return res.json({ ok: false, error: message });
-    };
-
-    try {
-      const a = order.address;
-      if (!a) return fail('No shipping address on this order.');
-
-      // The CJ variant ID (vid) must be saved as the SKU of the Shopify product.
-      const missing = (order.lineItems || []).filter((li) => !li.sku);
-      if (missing.length || !(order.lineItems || []).length) {
-        return fail(
-          'Missing CJ vid (set it as the SKU in Shopify) for: ' +
-            missing.map((li) => li.title).join(', ')
-        );
-      }
-      const products = order.lineItems.map((li) => ({ vid: li.sku, quantity: li.quantity }));
-
-      // Pick the cheapest shipping option for this destination.
-      const freight = await cj('/logistic/freightCalculate', 'POST', {
-        startCountryCode: process.env.CJ_FROM_COUNTRY || 'CN',
-        endCountryCode: a.country_code,
-        products,
-      });
-      const options = Array.isArray(freight.data) ? freight.data : [];
-      options.sort((x, y) => Number(x.logisticPrice) - Number(y.logisticPrice));
-      if (!options.length) return fail(`CJ shipping lookup failed: ${freight.message || 'no options'}`);
-
-      const json = await cj('/shopping/order/createOrderV2', 'POST', {
-        orderNumber: String(order.orderNumber),
-        shippingCountryCode: a.country_code,
-        shippingCountry: a.country,
-        shippingProvince: a.province,
-        shippingCity: a.city,
-        shippingAddress: a.address1,
-        shippingAddress2: a.address2 || '',
-        shippingCustomerName: order.customerName,
-        shippingZip: a.zip,
-        shippingPhone: a.phone || '',
-        logisticName: options[0].logisticName,
-        fromCountryCode: process.env.CJ_FROM_COUNTRY || 'CN',
-        payType: Number(process.env.CJ_PAY_TYPE || 3), // 3 = create only, 2 = auto-pay
-        products,
-      });
-
-      if (json.result === true || json.code === 200) {
-        order.cjOrderId = json.data?.orderId || json.data?.orderNum || 'created';
-        order.autoOrderResults = [
-          { title: 'CJ order', success: true, message: `Created CJ order ${order.cjOrderId}` },
-        ];
-        return res.json({ ok: true, cj: json });
-      }
-      return fail(`CJ error: ${json.message || JSON.stringify(json)}`);
-    } catch (e) {
-      return fail(`Error: ${e.message || e}`);
-    } finally {
-      order.cjInFlight = false;
-    }
+    // Allow retrying a previously failed attempt.
+    if (order.cjOrderId) return res.json({ ok: false, error: `Already sent to CJ: ${order.cjOrderId}` });
+    const result = await autoOrderWithCj(order);
+    res.json(result);
   });
+
+  // Exposed so server.js can call this the moment a webhook order comes in.
+  app.locals.autoOrderWithCj = autoOrderWithCj;
 };
+
+module.exports.autoOrderWithCj = autoOrderWithCj;
