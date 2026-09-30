@@ -4,11 +4,16 @@
 // store concept (name, tagline, spotlight product page content, sample
 // products, ad line), and returns it as JSON. Also handles the Shopify
 // app install (OAuth) so a seller can connect their real store.
+//
+// Persistent data (connected shops, AliExpress<->Shopify product
+// mappings, incoming orders) now lives in Postgres via db.js, so it
+// survives server restarts/redeploys instead of resetting each time.
 
 const express = require('express');
 const path = require('path');
 const crypto = require('crypto');
 require('dotenv').config();
+const db = require('./db');
 
 const app = express();
 app.use((req, res, next) => {
@@ -131,12 +136,8 @@ const SHOPIFY_API_SECRET = process.env.SHOPIFY_API_SECRET;
 const SHOPIFY_SCOPES = 'read_products,write_products';
 const APP_URL = (process.env.APP_URL || '').replace(/\/$/, '');
 
-const shopTokens = new Map();
-// Shopify product id -> { aliItemId, aliImage, title } so a real order
-// can be matched back to the exact AliExpress listing to fulfill.
-const productAliMap = new Map();
-// In-memory list of orders seen via webhook, newest first.
-const incomingOrders = [];
+// OAuth state only needs to survive a few seconds during the install
+// flow, so this one stays in memory — nothing important is lost if it resets.
 const pendingStates = new Map();
 
 function validShop(shop) {
@@ -197,7 +198,7 @@ app.get('/auth/callback', async (req, res) => {
       return res.status(502).send('Could not connect to Shopify.');
     }
 
-    shopTokens.set(shop, data.access_token);
+    await db.setShopToken(shop, data.access_token);
     console.log('Connected shop:', shop);
     res.redirect(`/?shop=${encodeURIComponent(shop)}&connected=1`);
   } catch (err) {
@@ -255,7 +256,7 @@ function validWebhookHmac(rawBody, hmacHeader) {
 
 // Shopify posts here the moment a customer completes a real order.
 // Raw body is needed (not the parsed JSON) to check the signature.
-app.post('/webhooks/orders-create', express.raw({ type: 'application/json' }), (req, res) => {
+app.post('/webhooks/orders-create', express.raw({ type: 'application/json' }), async (req, res) => {
   try {
     const hmac = req.get('X-Shopify-Hmac-Sha256');
     if (!validWebhookHmac(req.body, hmac)) {
@@ -264,19 +265,21 @@ app.post('/webhooks/orders-create', express.raw({ type: 'application/json' }), (
     const shop = req.get('X-Shopify-Shop-Domain');
     const order = JSON.parse(req.body.toString('utf8'));
 
-    const lineItems = (order.line_items || []).map((li) => {
-      const mapped = productAliMap.get(`gid://shopify/Product/${li.product_id}`);
-      return {
-        title: li.title,
-        quantity: li.quantity,
-        sku: li.sku || null,
-        aliItemId: mapped?.aliItemId || null,
-        aliLink: mapped?.aliItemId ? `https://www.aliexpress.com/item/${mapped.aliItemId}.html` : null,
-        aliImage: mapped?.aliImage || null,
-      };
-    });
+    const lineItems = await Promise.all(
+      (order.line_items || []).map(async (li) => {
+        const mapped = await db.getAliMapping(`gid://shopify/Product/${li.product_id}`);
+        return {
+          title: li.title,
+          quantity: li.quantity,
+          sku: li.sku || null,
+          aliItemId: mapped?.aliItemId || null,
+          aliLink: mapped?.aliItemId ? `https://www.aliexpress.com/item/${mapped.aliItemId}.html` : null,
+          aliImage: mapped?.aliImage || null,
+        };
+      })
+    );
 
-    incomingOrders.unshift({
+    const newOrder = {
       shop,
       orderId: order.id,
       orderNumber: order.order_number || order.name,
@@ -285,11 +288,16 @@ app.post('/webhooks/orders-create', express.raw({ type: 'application/json' }), (
       address: order.shipping_address || null,
       lineItems,
       fulfilled: false,
-    });
-    if (incomingOrders.length > 200) incomingOrders.length = 200;
+    };
+    await db.insertOrder(newOrder);
 
     console.log(`New order #${order.order_number} from ${shop} — ${lineItems.length} item(s)`);
     res.status(200).send('ok');
+
+    // Fire off the CJ order right away — don't make Shopify wait for it.
+    require('./cj').autoOrderWithCj(newOrder).catch((err) => {
+      console.error(`CJ auto-order threw for order #${newOrder.orderNumber}:`, err);
+    });
   } catch (err) {
     console.error('Webhook handling error:', err);
     res.status(200).send('ok'); // still 200 so Shopify doesn't retry forever
@@ -303,10 +311,10 @@ app.post('/webhooks/orders-create', express.raw({ type: 'application/json' }), (
 app.post('/api/check-prices', async (req, res) => {
   try {
     const results = [];
-    const entries = [...productAliMap.entries()];
+    const entries = await db.getAllAliMappings();
 
     for (const [shopifyProductId, info] of entries) {
-      const token = shopTokens.get(info.shop);
+      const token = await db.getShopToken(info.shop);
       if (!token) {
         results.push({ title: info.title, ok: false, reason: 'shop-not-connected' });
         continue;
@@ -335,6 +343,7 @@ app.post('/api/check-prices', async (req, res) => {
 
       if (newAliPrice == null || info.lastKnownAliPrice == null) {
         info.lastKnownAliPrice = newAliPrice;
+        await db.setAliMapping(shopifyProductId, info);
         results.push({ title: info.title, ok: true, changed: false, inStock });
         continue;
       }
@@ -363,10 +372,13 @@ app.post('/api/check-prices', async (req, res) => {
           }),
         });
 
+        const oldAliPrice = info.lastKnownAliPrice;
         info.shopifyPrice = newShopifyPrice;
         info.lastKnownAliPrice = newAliPrice;
-        results.push({ title: info.title, ok: true, changed: true, oldAliPrice: info.lastKnownAliPrice, newAliPrice, newShopifyPrice, inStock });
+        await db.setAliMapping(shopifyProductId, info);
+        results.push({ title: info.title, ok: true, changed: true, oldAliPrice, newAliPrice, newShopifyPrice, inStock });
       } else {
+        await db.setAliMapping(shopifyProductId, info);
         results.push({ title: info.title, ok: true, changed: false, inStock });
       }
     }
@@ -378,24 +390,24 @@ app.post('/api/check-prices', async (req, res) => {
   }
 });
 
-app.get('/api/price-status', (req, res) => {
-  const items = [...productAliMap.entries()].map(([shopifyProductId, info]) => ({ shopifyProductId, ...info }));
+app.get('/api/price-status', async (req, res) => {
+  const entries = await db.getAllAliMappings();
+  const items = entries.map(([shopifyProductId, info]) => ({ shopifyProductId, ...info }));
   res.json({ items });
 });
 // ---------- end price & inventory monitoring ----------
 
-
-app.get('/api/orders', (req, res) => {
-  res.json({ orders: incomingOrders });
+app.get('/api/orders', async (req, res) => {
+  res.json({ orders: await db.getOrders() });
 });
 
-app.post('/api/orders/:orderId/fulfilled', (req, res) => {
-  const order = incomingOrders.find((o) => String(o.orderId) === req.params.orderId);
-  if (order) order.fulfilled = true;
+app.post('/api/orders/:orderId/fulfilled', async (req, res) => {
+  const order = await db.getOrderById(req.params.orderId);
+  if (order) await db.updateOrder(req.params.orderId, { fulfilled: true });
   res.json({ ok: !!order });
 });
 // ---------- end order fulfillment ----------
-require('./cj')(app, incomingOrders); // CJ Dropshipping: auto-order route
+require('./cj')(app); // CJ Dropshipping: balance/product-lookup routes + manual retry route
 
 // ---------- Publish generated concept to Shopify ----------
 app.post('/api/publish', async (req, res) => {
@@ -404,7 +416,7 @@ app.post('/api/publish', async (req, res) => {
     if (!validShop(shop)) {
       return res.status(400).json({ error: 'Invalid shop.' });
     }
-    const token = shopTokens.get(shop);
+    const token = await db.getShopToken(shop);
     if (!token) {
       return res.status(401).json({ error: 'This store is not connected. Please reinstall the app.' });
     }
@@ -475,7 +487,7 @@ app.post('/api/publish', async (req, res) => {
       }
 
       if (product?.id && p.aliItemId) {
-        productAliMap.set(product.id, {
+        await db.setAliMapping(product.id, {
           shop,
           variantId: variantId || null,
           aliItemId: p.aliItemId,
@@ -603,6 +615,33 @@ app.get('/api/resolve-ali-link', async (req, res) => {
   }
 });
 
+// Last-resort fallback: recursively search the raw item object for
+// anything that looks like an image URL, in case the normal
+// item.images / item.image fields are empty for this listing.
+function findAnyImageUrl(obj, depth) {
+  if (depth > 4 || obj == null) return null;
+  if (typeof obj === 'string') {
+    if (/^(https?:)?\/\/.+\.(jpg|jpeg|png|webp)/i.test(obj)) {
+      return obj.startsWith('//') ? 'https:' + obj : obj;
+    }
+    return null;
+  }
+  if (Array.isArray(obj)) {
+    for (const v of obj) {
+      const found = findAnyImageUrl(v, depth + 1);
+      if (found) return found;
+    }
+    return null;
+  }
+  if (typeof obj === 'object') {
+    for (const key of Object.keys(obj)) {
+      const found = findAnyImageUrl(obj[key], depth + 1);
+      if (found) return found;
+    }
+  }
+  return null;
+}
+
 app.get('/api/aliexpress-item/:itemId', async (req, res) => {
   try {
     const itemId = String(req.params.itemId).replace(/\D/g, '');
@@ -710,6 +749,14 @@ app.get('/api/aliexpress-search', async (req, res) => {
 });
 // ---------- end AliExpress product search ----------
 
-app.listen(PORT, () => {
-  console.log(`Store Builder running at http://localhost:${PORT}`);
-});
+// Create the database tables (if they don't exist yet) before accepting traffic.
+db.initDb()
+  .then(() => {
+    app.listen(PORT, () => {
+      console.log(`Store Builder running at http://localhost:${PORT}`);
+    });
+  })
+  .catch((err) => {
+    console.error('Could not connect to the database on startup:', err);
+    process.exit(1);
+  });
