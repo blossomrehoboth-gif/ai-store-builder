@@ -20,6 +20,26 @@ let selectedTone = "Premium";
 let loading = false;
 let currentStore = null;
 
+// Keeps the last generated store so it survives a page refresh or
+// leaving the tab — saved right after each successful generation.
+function saveDraft(store, heroImages, perProduct) {
+  try {
+    localStorage.setItem("lastStoreDraft", JSON.stringify({ store, heroImages, perProduct }));
+  } catch (e) {}
+}
+
+function restoreDraft() {
+  try {
+    const raw = localStorage.getItem("lastStoreDraft");
+    if (!raw) return;
+    const draft = JSON.parse(raw);
+    if (!draft?.store) return;
+    renderStore(draft.store, draft.heroImages || [], draft.perProduct || []);
+    currentStore = draft.store;
+    postActions.hidden = false;
+  } catch (e) {}
+}
+
 const shopDomainInput = document.getElementById("shop-domain");
 const publishBtn = document.getElementById("publish-btn");
 const publishLabel = document.getElementById("publish-label");
@@ -49,6 +69,8 @@ form.addEventListener("submit", (e) => {
 regenerateBtn.addEventListener("click", generateStore);
 
 startOverBtn.addEventListener("click", () => {
+  localStorage.removeItem("lastStoreDraft");
+  currentStore = null;
   productInput.value = "";
   aliLinkInput.value = "";
   storeNameInput.value = "";
@@ -146,6 +168,7 @@ async function generateStore() {
       }
       const heroImgs = linkedItem.images && linkedItem.images.length ? linkedItem.images : [linkedItem.image].filter(Boolean);
       renderStore(data, heroImgs, [linkedItem]);
+      saveDraft(data, heroImgs, [linkedItem]);
       data.sourceNiche = product;
       currentStore = data;
       postActions.hidden = false;
@@ -205,6 +228,7 @@ async function generateStore() {
     data.sourceNiche = product;
     currentStore = data;
     postActions.hidden = false;
+    saveDraft(data, heroImages, perProduct);
   } catch (err) {
     errorMsg.textContent = /AliExpress/.test(err.message || "")
       ? err.message
@@ -480,3 +504,5 @@ publishBtn.addEventListener("click", async () => {
     publishLabel.textContent = "Publish to Shopify";
   }
 });
+
+restoreDraft();
