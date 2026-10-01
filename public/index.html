@@ -85,6 +85,9 @@
     </div>
 
     <div id="store-preview" class="store-card" hidden>
+      <div id="announcement-bar" class="announcement-bar" hidden>
+        <div id="announcement-track" class="announcement-track"></div>
+      </div>
       <div class="chrome-bar">
         <span class="dot dot-amber"></span>
         <span class="dot"></span>
@@ -121,6 +124,14 @@
 
         <button type="button" class="shop-now-btn">Shop now</button>
 
+        <div id="progress-tracker" class="progress-tracker" hidden>
+          <div class="progress-step"><span class="progress-icon">📦</span><span>Ordered</span></div>
+          <div class="progress-line"></div>
+          <div class="progress-step"><span class="progress-icon">🚚</span><span>Shipped</span></div>
+          <div class="progress-line"></div>
+          <div class="progress-step"><span class="progress-icon">🎁</span><span>Delivered</span></div>
+        </div>
+
         <ul id="feature-checklist" class="feature-checklist"></ul>
 
         <p id="store-story" class="store-story"></p>
@@ -144,6 +155,12 @@
         <div id="reviews-section" class="reviews-section" hidden>
           <h3 class="section-label">Customer reviews</h3>
           <div id="reviews-list" class="reviews-list"></div>
+        </div>
+
+        <!-- FAQ -->
+        <div id="faq-section" class="faq-section" hidden>
+          <h3 class="section-label">Frequently asked questions</h3>
+          <div id="faq-list" class="faq-list"></div>
         </div>
 
         <div id="ad-box" class="ad-box" hidden>

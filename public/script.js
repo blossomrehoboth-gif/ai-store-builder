@@ -450,6 +450,46 @@ function renderStore(store, heroImages, perProduct) {
     adBox.hidden = true;
   }
 
+  // Layout B extras — a genuinely different variant of the same page,
+  // picked randomly each generation. Layout A (default) hides all of
+  // this; Layout B shows an announcement bar, an order progress
+  // tracker, and an FAQ accordion on top of the same core content.
+  const isLayoutB = Math.random() < 0.5;
+
+  const announcementBar = document.getElementById("announcement-bar");
+  if (isLayoutB && store.announcementText) {
+    document.getElementById("announcement-track").textContent =
+      (store.announcementText + "   •   ").repeat(6);
+    announcementBar.hidden = false;
+  } else {
+    announcementBar.hidden = true;
+  }
+
+  document.getElementById("progress-tracker").hidden = !isLayoutB;
+
+  const faqSection = document.getElementById("faq-section");
+  const faqList = document.getElementById("faq-list");
+  if (isLayoutB && store.faq && store.faq.length > 0) {
+    faqList.innerHTML = store.faq
+      .map(
+        (f, i) => `
+      <div class="faq-item">
+        <button type="button" class="faq-question">${escapeHtml(f.question)}</button>
+        <div class="faq-answer">${escapeHtml(f.answer)}</div>
+      </div>
+    `
+      )
+      .join("");
+    faqList.querySelectorAll(".faq-item").forEach((item) => {
+      item.querySelector(".faq-question").addEventListener("click", () => {
+        item.classList.toggle("open");
+      });
+    });
+    faqSection.hidden = false;
+  } else {
+    faqSection.hidden = true;
+  }
+
   emptyState.hidden = true;
   loadingState.hidden = true;
   storePreview.hidden = false;

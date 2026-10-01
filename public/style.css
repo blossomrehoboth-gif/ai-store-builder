@@ -381,3 +381,103 @@ body {
 }
 
 .product-rating { font-size: 0.75rem; color: #B8863B; margin: 0 0 0.35rem; }
+
+/* ---------- Layout B extras: announcement bar, progress tracker, FAQ ---------- */
+
+.announcement-bar {
+  background: #1A1A1A;
+  color: #fff;
+  overflow: hidden;
+  white-space: nowrap;
+  padding: 8px 0;
+}
+
+.announcement-track {
+  display: inline-block;
+  padding-left: 100%;
+  font-size: 0.8rem;
+  letter-spacing: 0.03em;
+  animation: scroll-announcement 18s linear infinite;
+}
+
+@keyframes scroll-announcement {
+  0% { transform: translateX(0); }
+  100% { transform: translateX(-100%); }
+}
+
+.progress-tracker {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 1rem 0 1.5rem;
+  padding: 0.9rem;
+  background: #FAF7F2;
+  border-radius: 6px;
+}
+
+.progress-step {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 0.75rem;
+  color: var(--muted-on-paper, #6B6B6B);
+  flex-shrink: 0;
+}
+
+.progress-icon { font-size: 1.2rem; }
+
+.progress-line {
+  flex: 1;
+  height: 2px;
+  background: var(--line-on-paper, #E5E5E5);
+  margin: 0 0.4rem;
+  margin-bottom: 1.1rem;
+}
+
+.faq-section { margin-bottom: 1.75rem; }
+
+.faq-list { display: flex; flex-direction: column; gap: 0.6rem; }
+
+.faq-item {
+  border: 1px solid var(--line-on-paper, #E5E5E5);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.faq-question {
+  width: 100%;
+  text-align: left;
+  background: #FAF7F2;
+  border: none;
+  padding: 0.75rem 0.9rem;
+  font-weight: 600;
+  font-size: 0.9rem;
+  cursor: pointer;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.faq-question::after {
+  content: "+";
+  font-weight: 400;
+  font-size: 1.1rem;
+  flex-shrink: 0;
+  margin-left: 0.5rem;
+}
+
+.faq-item.open .faq-question::after { content: "−"; }
+
+.faq-answer {
+  max-height: 0;
+  overflow: hidden;
+  transition: max-height 0.2s ease;
+  font-size: 0.88rem;
+  color: var(--muted-on-paper, #6B6B6B);
+}
+
+.faq-item.open .faq-answer {
+  max-height: 10rem;
+  padding: 0.75rem 0.9rem;
+}
