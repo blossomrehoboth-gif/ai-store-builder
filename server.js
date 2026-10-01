@@ -80,7 +80,14 @@ Return ONLY a JSON object, with no markdown fences and no commentary, matching e
     {"name": "product name", "description": "one sentence, under 20 words", "price": "price like $24.99"},
     {"name": "product name", "description": "one sentence, under 20 words", "price": "price like $24.99"}
   ],
-  "adLine": "one short ad headline for a social ad, under 10 words"
+  "adLine": "one short ad headline for a social ad, under 10 words",
+  "announcementText": "a short urgency/shipping line for a scrolling top banner, under 8 words, e.g. 'FREE TRACKED DELIVERY \u00b7 LIMITED STOCK'",
+  "faq": [
+    {"question": "a real customer question about this product, under 12 words", "answer": "a clear one-sentence answer"},
+    {"question": "a real customer question about this product, under 12 words", "answer": "a clear one-sentence answer"},
+    {"question": "a real customer question about this product, under 12 words", "answer": "a clear one-sentence answer"},
+    {"question": "a real customer question about this product, under 12 words", "answer": "a clear one-sentence answer"}
+  ]
 }`;
 
     const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
