@@ -454,7 +454,10 @@ function renderStore(store, heroImages, perProduct) {
   // picked randomly each generation. Layout A (default) hides all of
   // this; Layout B shows an announcement bar, an order progress
   // tracker, and an FAQ accordion on top of the same core content.
-  const isLayoutB = Math.random() < 0.5;
+  // Alternates every single time a store is generated (instead of pure
+  // 50/50 chance, which could pick the same layout twice in a row).
+  window.__lastLayoutWasB = !window.__lastLayoutWasB;
+  const isLayoutB = window.__lastLayoutWasB;
 
   const announcementBar = document.getElementById("announcement-bar");
   if (isLayoutB && store.announcementText) {
