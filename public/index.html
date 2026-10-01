@@ -84,6 +84,11 @@
       <span class="spinner"></span> Drafting your store...
     </div>
 
+    <div id="layout-chooser" class="layout-chooser" hidden>
+      <h3 class="section-label" style="padding:0 1rem;">Pick a layout</h3>
+      <div id="layout-chooser-cards" class="layout-chooser-cards"></div>
+    </div>
+
     <div id="store-preview" class="store-card" hidden>
       <div id="announcement-bar" class="announcement-bar" hidden>
         <div id="announcement-track" class="announcement-track"></div>
@@ -122,7 +127,16 @@
           <span id="discount-badge" class="discount-badge"></span>
         </div>
 
+        <div id="payment-icons" class="payment-icons" hidden>
+          <span>AMEX</span><span>Apple Pay</span><span>G Pay</span><span>Mastercard</span><span>Visa</span><span>PayPal</span>
+        </div>
+
         <button type="button" class="shop-now-btn">Shop now</button>
+
+        <div id="bundle-section" class="bundle-section" hidden>
+          <p class="bundle-label">DEAL</p>
+          <div id="bundle-options" class="bundle-options"></div>
+        </div>
 
         <div id="progress-tracker" class="progress-tracker" hidden>
           <div class="progress-step"><span class="progress-icon">📦</span><span>Ordered</span></div>

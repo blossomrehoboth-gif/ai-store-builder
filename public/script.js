@@ -22,9 +22,9 @@ let currentStore = null;
 
 // Keeps the last generated store so it survives a page refresh or
 // leaving the tab — saved right after each successful generation.
-function saveDraft(store, heroImages, perProduct) {
+function saveDraft(store, heroImages, perProduct, layoutIndex) {
   try {
-    localStorage.setItem("lastStoreDraft", JSON.stringify({ store, heroImages, perProduct }));
+    localStorage.setItem("lastStoreDraft", JSON.stringify({ store, heroImages, perProduct, layoutIndex }));
   } catch (e) {}
 }
 
@@ -34,7 +34,7 @@ function restoreDraft() {
     if (!raw) return;
     const draft = JSON.parse(raw);
     if (!draft?.store) return;
-    renderStore(draft.store, draft.heroImages || [], draft.perProduct || []);
+    renderStore(draft.store, draft.heroImages || [], draft.perProduct || [], draft.layoutIndex);
     currentStore = draft.store;
     postActions.hidden = false;
   } catch (e) {}
@@ -81,6 +81,7 @@ startOverBtn.addEventListener("click", () => {
   errorMsg.hidden = true;
   postActions.hidden = true;
   storePreview.hidden = true;
+  document.getElementById("layout-chooser").hidden = true;
   loadingState.hidden = true;
   emptyState.hidden = false;
 });
@@ -167,11 +168,8 @@ async function generateStore() {
         data.storeName = storeNameInput.value.trim();
       }
       const heroImgs = linkedItem.images && linkedItem.images.length ? linkedItem.images : [linkedItem.image].filter(Boolean);
-      renderStore(data, heroImgs, [linkedItem]);
-      saveDraft(data, heroImgs, [linkedItem]);
       data.sourceNiche = product;
-      currentStore = data;
-      postActions.hidden = false;
+      showLayoutChooser(data, heroImgs, [linkedItem]);
       return;
     }
 
@@ -224,11 +222,8 @@ async function generateStore() {
       data.storeName = storeNameInput.value.trim();
     }
 
-    renderStore(data, heroImages, perProduct);
     data.sourceNiche = product;
-    currentStore = data;
-    postActions.hidden = false;
-    saveDraft(data, heroImages, perProduct);
+    showLayoutChooser(data, heroImages, perProduct);
   } catch (err) {
     errorMsg.textContent = /AliExpress/.test(err.message || "")
       ? err.message
@@ -249,6 +244,7 @@ function setLoadingUI(isLoading) {
   if (isLoading) {
     emptyState.hidden = true;
     storePreview.hidden = true;
+    document.getElementById("layout-chooser").hidden = true;
     loadingState.hidden = false;
   } else {
     loadingState.hidden = true;
@@ -300,7 +296,52 @@ function starString(rating) {
   return "★".repeat(Math.max(1, Math.min(5, rounded))) + "☆".repeat(5 - Math.max(1, Math.min(5, rounded)));
 }
 
-function renderStore(store, heroImages, perProduct) {
+function showLayoutChooser(store, heroImages, perProduct) {
+  loadingState.hidden = true;
+  storePreview.hidden = true;
+  emptyState.hidden = true;
+
+  const chooser = document.getElementById("layout-chooser");
+  const cardsEl = document.getElementById("layout-chooser-cards");
+  const thumb = heroImages && heroImages[0];
+  const firstPrice = (store.products && store.products[0] && store.products[0].price) || "";
+
+  const layouts = [
+    { label: "Classic", desc: "Clean product grid, no extras." },
+    { label: "Announcement + FAQ", desc: "Scrolling banner, delivery tracker, FAQ accordion." },
+    { label: "Checkout-style", desc: "Payment icons, bundle deal pricing, single-product focus." },
+  ];
+
+  cardsEl.innerHTML = layouts
+    .map(
+      (l, i) => `
+    <div class="layout-choice-card" data-index="${i}">
+      ${thumb ? `<img src="${thumb}" />` : `<div style="width:64px;height:64px;border-radius:8px;background:#eee;flex-shrink:0;"></div>`}
+      <div class="layout-choice-info">
+        <p class="layout-choice-title">${escapeHtml(l.label)}</p>
+        <p class="layout-choice-desc">${escapeHtml(l.desc)}${firstPrice ? " · " + escapeHtml(firstPrice) : ""}</p>
+      </div>
+      <button type="button" class="layout-choice-btn" data-index="${i}">Choose</button>
+    </div>
+  `
+    )
+    .join("");
+
+  cardsEl.querySelectorAll("[data-index]").forEach((el) => {
+    el.addEventListener("click", () => {
+      const idx = parseInt(el.dataset.index, 10);
+      chooser.hidden = true;
+      renderStore(store, heroImages, perProduct, idx);
+      currentStore = store;
+      postActions.hidden = false;
+      saveDraft(store, heroImages, perProduct, idx);
+    });
+  });
+
+  chooser.hidden = false;
+}
+
+function renderStore(store, heroImages, perProduct, layoutIndex) {
   document.getElementById("domain-hint").textContent = store.domainHint || "yourstore.com";
   document.getElementById("store-name").textContent = store.storeName || "";
   document.getElementById("store-name").style.color = store.accentColor || "#8C6A30";
@@ -450,14 +491,16 @@ function renderStore(store, heroImages, perProduct) {
     adBox.hidden = true;
   }
 
-  // Layout B extras — a genuinely different variant of the same page,
-  // picked randomly each generation. Layout A (default) hides all of
-  // this; Layout B shows an announcement bar, an order progress
-  // tracker, and an FAQ accordion on top of the same core content.
-  // Alternates every single time a store is generated (instead of pure
-  // 50/50 chance, which could pick the same layout twice in a row).
-  window.__lastLayoutWasB = !window.__lastLayoutWasB;
-  const isLayoutB = window.__lastLayoutWasB;
+  // Three layout variants, guaranteed to cycle A → B → C → A... on
+  // every generate, instead of random chance that could repeat.
+  // Explicit choice (from the layout picker) wins; otherwise fall
+  // back to auto-rotating, e.g. when restoring a saved draft.
+  if (layoutIndex == null) {
+    window.__layoutIndex = ((window.__layoutIndex ?? -1) + 1) % 3;
+    layoutIndex = window.__layoutIndex;
+  }
+  const isLayoutB = layoutIndex === 1;
+  const isLayoutC = layoutIndex === 2;
 
   const announcementBar = document.getElementById("announcement-bar");
   if (isLayoutB && store.announcementText) {
@@ -491,6 +534,34 @@ function renderStore(store, heroImages, perProduct) {
     faqSection.hidden = false;
   } else {
     faqSection.hidden = true;
+  }
+
+  // Layout C extras — EverOrb-style: payment icon row + a bundle deal
+  // block, built from the same real price already shown above (never
+  // a separate invented number).
+  document.getElementById("payment-icons").hidden = !isLayoutC;
+  const bundleSection = document.getElementById("bundle-section");
+  if (isLayoutC && displayPrice != null) {
+    const bundleOptionsEl = document.getElementById("bundle-options");
+    const tiers = [
+      { label: "Buy 1", qty: 1, mult: 1 },
+      { label: "Buy 2 & Save", qty: 2, mult: 1.8 },
+      { label: "Buy 3 & Save More", qty: 3, mult: 2.5 },
+    ];
+    bundleOptionsEl.innerHTML = tiers
+      .map((t, i) => {
+        const total = displayPrice * t.mult;
+        return `
+        <div class="bundle-option${i === 1 ? " best" : ""}">
+          <span>${t.label}</span>
+          <span class="bundle-price">$${total.toFixed(2)}</span>
+        </div>
+      `;
+      })
+      .join("");
+    bundleSection.hidden = false;
+  } else {
+    bundleSection.hidden = true;
   }
 
   emptyState.hidden = true;
