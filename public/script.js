@@ -28,15 +28,13 @@ function saveDraft(store, heroImages, perProduct, layoutIndex) {
   } catch (e) {}
 }
 
-function restoreDraft() {
+async function restoreDraft() {
   try {
     const raw = localStorage.getItem("lastStoreDraft");
     if (!raw) return;
     const draft = JSON.parse(raw);
     if (!draft?.store) return;
-    renderStore(draft.store, draft.heroImages || [], draft.perProduct || [], draft.layoutIndex);
-    currentStore = draft.store;
-    postActions.hidden = false;
+    await showTemplatePreview(draft.store, draft.perProduct || []);
   } catch (e) {}
 }
 
@@ -82,6 +80,7 @@ startOverBtn.addEventListener("click", () => {
   postActions.hidden = true;
   storePreview.hidden = true;
   document.getElementById("layout-chooser").hidden = true;
+  document.getElementById("template-preview").hidden = true;
   loadingState.hidden = true;
   emptyState.hidden = false;
 });
@@ -167,9 +166,8 @@ async function generateStore() {
       if (storeNameInput.value.trim()) {
         data.storeName = storeNameInput.value.trim();
       }
-      const heroImgs = linkedItem.images && linkedItem.images.length ? linkedItem.images : [linkedItem.image].filter(Boolean);
       data.sourceNiche = product;
-      showLayoutChooser(data, heroImgs, [linkedItem]);
+      await showTemplatePreview(data, [linkedItem]);
       return;
     }
 
@@ -223,7 +221,7 @@ async function generateStore() {
     }
 
     data.sourceNiche = product;
-    showLayoutChooser(data, heroImages, perProduct);
+    await showTemplatePreview(data, perProduct);
   } catch (err) {
     errorMsg.textContent = /AliExpress/.test(err.message || "")
       ? err.message
@@ -245,6 +243,7 @@ function setLoadingUI(isLoading) {
     emptyState.hidden = true;
     storePreview.hidden = true;
     document.getElementById("layout-chooser").hidden = true;
+    document.getElementById("template-preview").hidden = true;
     loadingState.hidden = false;
   } else {
     loadingState.hidden = true;
@@ -294,6 +293,57 @@ function renderHeroThumbs(images) {
 function starString(rating) {
   const rounded = Math.round(rating);
   return "★".repeat(Math.max(1, Math.min(5, rounded))) + "☆".repeat(5 - Math.max(1, Math.min(5, rounded)));
+}
+
+async function showTemplatePreview(store, perProduct) {
+  loadingState.hidden = true;
+  emptyState.hidden = true;
+  storePreview.hidden = true;
+  document.getElementById("layout-chooser").hidden = true;
+
+  const products = (store.products || []).map((p, i) => {
+    const real = perProduct[i];
+    return {
+      name: p.name,
+      priceDisplay: p.price || "",
+      priceNumber: real?.price != null ? real.price : null,
+      image: real?.image || null,
+    };
+  });
+
+  async function fetchAndShow(preferredFile) {
+    const res = await fetch("/api/render-template", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        storeName: store.storeName,
+        tagline: store.tagline,
+        accentColor: store.accentColor,
+        products,
+        templateChoice: preferredFile,
+      }),
+    });
+    const result = await res.json();
+    if (!res.ok || result.error) {
+      errorMsg.textContent = "Couldn't render the store design. Try generating again.";
+      errorMsg.hidden = false;
+      return;
+    }
+    const iframe = document.getElementById("template-iframe");
+    iframe.srcdoc = result.html;
+    store.__templateFile = result.templateFile;
+    document.getElementById("template-preview").hidden = false;
+    currentStore = store;
+    postActions.hidden = false;
+    saveDraft(store, [], perProduct);
+    localStorage.setItem("lastTemplateProducts", JSON.stringify(products));
+  }
+
+  await fetchAndShow(null); // always random, ignore Groq's pick
+
+  document.getElementById("reroll-template-btn").onclick = () => {
+    fetchAndShow(null); // null = pick a new random one, ignore Groq's original pick
+  };
 }
 
 function showLayoutChooser(store, heroImages, perProduct) {

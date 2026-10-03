@@ -13,6 +13,7 @@ const express = require('express');
 const path = require('path');
 const crypto = require('crypto');
 require('dotenv').config();
+const { renderTemplate, listTemplateSummaries } = require('./templater');
 const db = require('./db');
 
 const app = express();
@@ -44,14 +45,21 @@ app.post('/api/generate', async (req, res) => {
       return res.status(400).json({ error: 'A product or niche is required.' });
     }
 
+    const templateOptions = listTemplateSummaries();
+    const templateList = templateOptions.map((t) => `${t.file}: ${t.title}`).join('\n');
+
     const prompt = `You are building a single-product landing page for a dropshipping seller, in the style of a high-converting DTC product page: big headline, feature checklist, a "why choose us" comparison table, a short usage guide, and sample customer reviews.
 
 Product or niche: ${product}
 Target audience: ${audience}
 Brand tone: ${tone}
 
+Here are 35 available page design templates. Pick the ONE filename that best fits this product's vibe and category (not necessarily the same product type — judge by mood/tone/color fit):
+${templateList}
+
 Return ONLY a JSON object, with no markdown fences and no commentary, matching exactly this shape:
 {
+  "templateChoice": "exact filename from the list above, e.g. 02-ember-and-oak.html",
   "storeName": "short brandable store name, 1-3 words",
   "domainHint": "storename.com style lowercase slug, no spaces",
   "tagline": "one line, under 8 words",
@@ -719,6 +727,22 @@ app.get('/api/aliexpress-item/:itemId', async (req, res) => {
     res.json({ ok: false, reason: 'exception' });
   }
 });
+
+// ---------- Template-based page rendering (35 design library) ----------
+app.post('/api/render-template', (req, res) => {
+  try {
+    const { storeName, tagline, accentColor, products, templateChoice } = req.body;
+    if (!storeName || !Array.isArray(products) || products.length === 0) {
+      return res.status(400).json({ error: 'Missing store name or products.' });
+    }
+    const result = renderTemplate(storeName, tagline, accentColor, products, templateChoice);
+    res.json(result);
+  } catch (err) {
+    console.error('Template render error:', err);
+    res.status(500).json({ error: 'Could not render a template.' });
+  }
+});
+// ---------- end template-based page rendering ----------
 
 app.get('/api/aliexpress-search', async (req, res) => {
   try {
