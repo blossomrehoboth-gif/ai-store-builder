@@ -312,6 +312,9 @@ function showLayoutChooser(store, heroImages, perProduct) {
     { label: "Checkout-style", desc: "Payment icons, bundle deal pricing, single-product focus." },
     { label: "Minimal + Sticky Bar", desc: "Stripped down, price/CTA follows you while scrolling." },
     { label: "Gallery + Accordion", desc: "Photo gallery, collapsible description/FAQ rows." },
+    { label: "Story First", desc: "Brand story leads, then products, then proof." },
+    { label: "How It Works First", desc: "Usage steps lead, builds trust before the price." },
+    { label: "Social Proof First", desc: "Reviews and comparison table lead the page." },
   ];
 
   cardsEl.innerHTML = layouts
@@ -632,6 +635,21 @@ function renderStore(store, heroImages, perProduct, layoutIndex) {
   } else {
     accordionEl.hidden = true;
   }
+
+  // Layouts F, G, H — same real sections, different visual order.
+  // Reusing the exact same content/markup, just resequenced, so
+  // nothing here is invented or copied from anywhere else.
+  const reorderIds = ["store-story", "usage-section", "comparison-section", "reviews-section", "product-list"];
+  const orderMaps = {
+    5: { "store-story": 1, "product-list": 2, "usage-section": 3, "comparison-section": 4, "reviews-section": 5 }, // F: Story first
+    6: { "usage-section": 1, "product-list": 2, "store-story": 3, "comparison-section": 4, "reviews-section": 5 }, // G: How-it-works first
+    7: { "reviews-section": 1, "comparison-section": 2, "product-list": 3, "store-story": 4, "usage-section": 5 }, // H: Social proof first
+  };
+  const orderMap = orderMaps[layoutIndex];
+  reorderIds.forEach((id) => {
+    const el = document.getElementById(id);
+    if (el) el.style.order = orderMap ? String(orderMap[id] ?? 9) : "";
+  });
 
   emptyState.hidden = true;
   loadingState.hidden = true;

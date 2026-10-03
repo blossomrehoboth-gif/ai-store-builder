@@ -229,7 +229,7 @@ body {
 
 .hero-thumb.active { border-color: var(--brass); }
 
-.store-body { padding: 1.5rem; }
+.store-body { padding: 1.5rem; display: flex; flex-direction: column; }
 
 .store-tagline-plain {
   text-transform: uppercase;
