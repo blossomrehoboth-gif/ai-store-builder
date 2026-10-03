@@ -331,6 +331,102 @@ body {
   font-weight: 700;
 }
 
+.sticky-bar {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px;
+  background: #fff;
+  border-top: 1px solid #e3dbc9;
+  box-shadow: 0 -2px 8px rgba(0,0,0,0.06);
+  z-index: 5;
+}
+
+.sticky-bar img {
+  width: 40px;
+  height: 40px;
+  object-fit: cover;
+  border-radius: 6px;
+  background: #eee;
+}
+
+.sticky-bar-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  font-size: 0.8rem;
+}
+
+.sticky-bar-info span:first-child {
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sticky-bar-btn {
+  padding: 8px 16px;
+  border: none;
+  border-radius: 999px;
+  background: var(--brass);
+  color: #fff;
+  font-weight: 600;
+  font-size: 0.85rem;
+  white-space: nowrap;
+}
+
+.lifestyle-gallery {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-bottom: 1.25rem;
+}
+
+.lifestyle-gallery img {
+  width: 100%;
+  aspect-ratio: 3 / 4;
+  object-fit: cover;
+  border-radius: 10px;
+  background: #eee;
+}
+
+.accordion-section {
+  margin-bottom: 1.25rem;
+}
+
+.accordion-row {
+  border-bottom: 1px solid #e3dbc9;
+}
+
+.accordion-row-btn {
+  width: 100%;
+  text-align: left;
+  padding: 12px 0;
+  background: none;
+  border: none;
+  font-weight: 700;
+  font-size: 0.95rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.accordion-row-body {
+  max-height: 0;
+  overflow: hidden;
+  font-size: 0.85rem;
+  color: #57503f;
+  transition: max-height 0.2s ease;
+}
+
+.accordion-row.open .accordion-row-body {
+  max-height: 400px;
+  padding-bottom: 12px;
+}
+
 .layout-chooser-cards {
   display: flex;
   flex-direction: column;
