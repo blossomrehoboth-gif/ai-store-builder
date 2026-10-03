@@ -91,4 +91,4 @@ function renderTemplate(storeName, tagline, accentColor, products, preferredFile
   return { html: out, templateFile: file };
 }
 
-module.exports = { renderTemplate };
+module.exports = { renderTemplate, listTemplateSummaries };
