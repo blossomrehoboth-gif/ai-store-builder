@@ -61,9 +61,12 @@ function renderTemplate(storeName, tagline, accentColor, products, preferredFile
   // First element with class="sub" (hero sub-line)
   out = out.replace(/(class="sub">)([^<]*)(<)/, (m, a, _old, c) => `${a}${safeTagline}${c}`);
 
-  // Product cards: replace name/price/image per card, cycling through
-  // the real products list if there are more card slots than products.
   if (products && products.length > 0) {
+    // Step 1: pull every product card OUT of the document into a
+    // placeholder token, processing its name/price/image as before.
+    // This stops the next step (hero/banner images) from re-touching
+    // or mis-cycling images that already belong to a specific card.
+    const extractedCards = [];
     let cardIndex = 0;
     out = out.replace(/<article class="card"[\s\S]*?<\/article>/g, (cardHtml) => {
       const p = products[cardIndex % products.length];
@@ -76,8 +79,26 @@ function renderTemplate(storeName, tagline, accentColor, products, preferredFile
       }
       card = card.replace(/data-n="[^"]*"/, `data-n="${escapeHtml(p.name)}"`);
       card = card.replace(/data-p="[^"]*"/, `data-p="${p.priceNumber || ''}"`);
-      return card;
+      const token = `@@CARD${extractedCards.length}@@`;
+      extractedCards.push(card);
+      return token;
     });
+
+    // Step 2: everything still showing a plain `.img` box at this
+    // point is a hero/banner image, not a product card (cards were
+    // already pulled out above) — give those real photos too,
+    // cycling through the same product list.
+    let heroImgIndex = 0;
+    out = out.replace(/class="img" style="[^"]*"/g, () => {
+      const p = products[heroImgIndex % products.length];
+      heroImgIndex += 1;
+      return p.image
+        ? `class="img" style="background-image:url('${p.image}');background-size:cover;background-position:center"`
+        : `class="img" style=""`;
+    });
+
+    // Step 3: put the processed cards back where they came from.
+    out = out.replace(/@@CARD(\d+)@@/g, (m, idx) => extractedCards[Number(idx)]);
 
     // Sticky buy bar (uses the first real product)
     const first = products[0];
