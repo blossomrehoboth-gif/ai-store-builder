@@ -13,7 +13,7 @@ const express = require('express');
 const path = require('path');
 const crypto = require('crypto');
 require('dotenv').config();
-const { renderTemplate } = require('./templater');
+const { renderTemplate, listTemplateSummaries } = require('./templater');
 const db = require('./db');
 
 const app = express();
@@ -45,14 +45,21 @@ app.post('/api/generate', async (req, res) => {
       return res.status(400).json({ error: 'A product or niche is required.' });
     }
 
+    const templateOptions = listTemplateSummaries();
+    const templateList = templateOptions.map((t) => `${t.file}: ${t.title}`).join('\n');
+
     const prompt = `You are building a single-product landing page for a dropshipping seller, in the style of a high-converting DTC product page: big headline, feature checklist, a "why choose us" comparison table, a short usage guide, and sample customer reviews.
 
 Product or niche: ${product}
 Target audience: ${audience}
 Brand tone: ${tone}
 
+Here are 35 available page design templates. Pick the ONE filename that best fits this product's vibe and category (not necessarily the same product type — judge by mood/tone/color fit):
+${templateList}
+
 Return ONLY a JSON object, with no markdown fences and no commentary, matching exactly this shape:
 {
+  "templateChoice": "exact filename from the list above, e.g. 02-ember-and-oak.html",
   "storeName": "short brandable store name, 1-3 words",
   "domainHint": "storename.com style lowercase slug, no spaces",
   "tagline": "one line, under 8 words",
@@ -99,7 +106,7 @@ Return ONLY a JSON object, with no markdown fences and no commentary, matching e
       },
       body: JSON.stringify({
         model: 'openai/gpt-oss-120b',
-        max_tokens: 2800,
+        max_tokens: 1800,
         messages: [{ role: 'user', content: prompt }]
       })
     });
@@ -447,24 +454,6 @@ app.post('/api/publish', async (req, res) => {
       return r.json();
     }
 
-    // Find the "Online Store" sales channel once, so every product
-    // created below can actually be published to it — by default a
-    // product created via the API is DRAFT and invisible to shoppers
-    // until it's explicitly published to a channel.
-    let onlineStorePublicationId = null;
-    try {
-      const pubData = await shopifyGraphQL(
-        `query { publications(first: 10) { edges { node { id name } } } }`,
-        {}
-      );
-      const pub = pubData?.data?.publications?.edges?.find(
-        (e) => e.node.name === 'Online Store'
-      );
-      onlineStorePublicationId = pub?.node?.id || null;
-    } catch (e) {
-      console.error('Could not look up Online Store publication:', e);
-    }
-
     const results = [];
 
     for (const p of concept.products) {
@@ -484,7 +473,6 @@ app.post('/api/publish', async (req, res) => {
             title: p.name,
             descriptionHtml: p.description || '',
             vendor: concept.storeName || 'AI Store Builder',
-            status: 'ACTIVE',
           },
         }
       );
@@ -511,26 +499,6 @@ app.post('/api/publish', async (req, res) => {
             variants: [{ id: variantId, price: priceNumber }],
           }
         );
-      }
-
-      // Make it actually visible to shoppers on the storefront, not
-      // just present in the admin.
-      if (product?.id && onlineStorePublicationId) {
-        const publishData = await shopifyGraphQL(
-          `mutation publishablePublish($id: ID!, $input: [PublicationInput!]!) {
-            publishablePublish(id: $id, input: $input) {
-              userErrors { field message }
-            }
-          }`,
-          {
-            id: product.id,
-            input: [{ publicationId: onlineStorePublicationId }],
-          }
-        );
-        const publishErrors = publishData?.data?.publishablePublish?.userErrors;
-        if (publishErrors && publishErrors.length) {
-          console.error('Could not publish to Online Store:', publishErrors);
-        }
       }
 
       if (product?.id && p.aliItemId) {
