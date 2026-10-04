@@ -19,18 +19,18 @@
   <aside class="rail">
     <div>
       <p class="eyebrow">Store builder</p>
-      <h1 class="headline">Describe what you sell.<br />See a product page take shape.</h1>
+      <h1 class="headline">Describe what you sell.<br />See a storefront take shape.</h1>
     </div>
 
     <form id="builder-form" class="fields">
       <label class="field">
-        <span>AliExpress product link (optional)</span>
-        <input type="url" id="ali-link" placeholder="Paste an AliExpress product link" />
+        <span>Product or niche</span>
+        <input type="text" id="product" placeholder="e.g. minimalist ceramic planters" />
       </label>
 
       <label class="field">
-        <span>Product or niche</span>
-        <input type="text" id="product" placeholder="e.g. minimalist ceramic planters" />
+        <span>Or paste an AliExpress product link</span>
+        <input type="text" id="ali-link" placeholder="https://www.aliexpress.com/item/..." />
       </label>
 
       <label class="field">
@@ -91,7 +91,7 @@
       </div>
     </div>
 
-    <div id="publish-box" class="ad-box" hidden>
+    <div id="publish-box" class="ad-box" hidden style="max-width:42rem;margin:1rem auto 0;">
       <p class="ad-label">Publish to Shopify</p>
       <label class="field" style="margin-bottom: 8px;">
         <span>Your store's .myshopify.com domain</span>
@@ -204,7 +204,6 @@
           <p class="ad-label">Ad idea</p>
           <p id="ad-line" class="ad-line"></p>
         </div>
-
       </div>
 
       <footer class="store-footer">

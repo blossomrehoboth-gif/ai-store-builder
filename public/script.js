@@ -560,15 +560,6 @@ function renderStore(store, heroImages, perProduct, layoutIndex) {
   const isLayoutB = layoutIndex === 1;
   const isLayoutC = layoutIndex === 2;
 
-  const announcementBar = document.getElementById("announcement-bar");
-  if (isLayoutB && store.announcementText) {
-    document.getElementById("announcement-track").textContent =
-      (store.announcementText + "   •   ").repeat(6);
-    announcementBar.hidden = false;
-  } else {
-    announcementBar.hidden = true;
-  }
-
   document.getElementById("progress-tracker").hidden = !isLayoutB;
 
   const faqSection = document.getElementById("faq-section");
@@ -621,88 +612,6 @@ function renderStore(store, heroImages, perProduct, layoutIndex) {
   } else {
     bundleSection.hidden = true;
   }
-
-  // Layout D — minimal: hides the extra sections and keeps price/CTA
-  // visible via a sticky bar while scrolling.
-  const isLayoutD = layoutIndex === 3;
-  [
-    "progress-tracker", "faq-section", "comparison-section", "usage-section",
-    "reviews-section", "bundle-section", "payment-icons", "announcement-bar",
-  ].forEach((id) => {
-    if (isLayoutD) document.getElementById(id).hidden = true;
-  });
-
-  const stickyBar = document.getElementById("sticky-bar");
-  if (isLayoutD && displayPrice != null) {
-    document.getElementById("sticky-bar-img").src = (heroImages && heroImages[0]) || "";
-    document.getElementById("sticky-bar-name").textContent = store.storeName || "";
-    document.getElementById("sticky-bar-price").textContent = `$${displayPrice.toFixed(2)}`;
-    stickyBar.hidden = false;
-  } else {
-    stickyBar.hidden = true;
-  }
-
-  // Layout E — a 2-up photo gallery (real product images only) plus an
-  // accordion built from content already generated (no new AI calls,
-  // no copied outside text).
-  const isLayoutE = layoutIndex === 4;
-  const galleryEl = document.getElementById("lifestyle-gallery");
-  if (isLayoutE && heroImages && heroImages.length > 1) {
-    galleryEl.innerHTML = heroImages
-      .slice(0, 2)
-      .map((u) => `<img src="${u}" alt="" />`)
-      .join("");
-    galleryEl.hidden = false;
-  } else {
-    galleryEl.hidden = true;
-  }
-
-  const accordionEl = document.getElementById("accordion-section");
-  if (isLayoutE) {
-    const rows = [];
-    if (store.brandStory) rows.push({ title: "Description", body: store.brandStory });
-    if (store.featureChecklist && store.featureChecklist.length) {
-      rows.push({ title: "What's included", body: store.featureChecklist.join(" · ") });
-    }
-    if (store.faq && store.faq.length) {
-      rows.push({ title: store.faq[0].question, body: store.faq[0].answer });
-    }
-    if (rows.length) {
-      accordionEl.innerHTML = rows
-        .map(
-          (r) => `
-        <div class="accordion-row">
-          <button type="button" class="accordion-row-btn">${escapeHtml(r.title)} <span>+</span></button>
-          <div class="accordion-row-body">${escapeHtml(r.body)}</div>
-        </div>
-      `
-        )
-        .join("");
-      accordionEl.querySelectorAll(".accordion-row-btn").forEach((btn) => {
-        btn.addEventListener("click", () => btn.parentElement.classList.toggle("open"));
-      });
-      accordionEl.hidden = false;
-    } else {
-      accordionEl.hidden = true;
-    }
-  } else {
-    accordionEl.hidden = true;
-  }
-
-  // Layouts F, G, H — same real sections, different visual order.
-  // Reusing the exact same content/markup, just resequenced, so
-  // nothing here is invented or copied from anywhere else.
-  const reorderIds = ["store-story", "usage-section", "comparison-section", "reviews-section", "product-list"];
-  const orderMaps = {
-    5: { "store-story": 1, "product-list": 2, "usage-section": 3, "comparison-section": 4, "reviews-section": 5 }, // F: Story first
-    6: { "usage-section": 1, "product-list": 2, "store-story": 3, "comparison-section": 4, "reviews-section": 5 }, // G: How-it-works first
-    7: { "reviews-section": 1, "comparison-section": 2, "product-list": 3, "store-story": 4, "usage-section": 5 }, // H: Social proof first
-  };
-  const orderMap = orderMaps[layoutIndex];
-  reorderIds.forEach((id) => {
-    const el = document.getElementById(id);
-    if (el) el.style.order = orderMap ? String(orderMap[id] ?? 9) : "";
-  });
 
   emptyState.hidden = true;
   loadingState.hidden = true;
