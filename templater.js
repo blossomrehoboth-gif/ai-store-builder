@@ -84,17 +84,18 @@ function renderTemplate(storeName, tagline, accentColor, products, preferredFile
       return token;
     });
 
-    // Step 2: everything still showing a plain `.img` box at this
-    // point is a hero/banner image, not a product card (cards were
-    // already pulled out above) — give those real photos too,
-    // cycling through the same product list.
+    // Step 2: every remaining placeholder image uses a CSS gradient
+    // as its background — true across all 35 templates regardless of
+    // the class name on the box (some use "img", others "d-big",
+    // etc). Cards were already pulled out above, so anything left
+    // with a gradient background is a hero/banner decoration.
     let heroImgIndex = 0;
-    out = out.replace(/class="img" style="[^"]*"/g, () => {
+    out = out.replace(/style="background:(?:repeating-)?(?:linear|radial|conic)-gradient\([^"]*"/g, () => {
       const p = products[heroImgIndex % products.length];
       heroImgIndex += 1;
       return p.image
-        ? `class="img" style="background-image:url('${p.image}');background-size:cover;background-position:center"`
-        : `class="img" style=""`;
+        ? `style="background-image:url('${p.image}');background-size:cover;background-position:center"`
+        : `style=""`;
     });
 
     // Step 3: put the processed cards back where they came from.
