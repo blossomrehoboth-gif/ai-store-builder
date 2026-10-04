@@ -513,26 +513,6 @@ app.post('/api/publish', async (req, res) => {
         );
       }
 
-      // Attach the real product photo, when we have one, so the
-      // storefront listing isn't blank.
-      if (product?.id && p.aliImage) {
-        const mediaData = await shopifyGraphQL(
-          `mutation productCreateMedia($productId: ID!, $media: [CreateMediaInput!]!) {
-            productCreateMedia(productId: $productId, media: $media) {
-              mediaUserErrors { field message }
-            }
-          }`,
-          {
-            productId: product.id,
-            media: [{ originalSource: p.aliImage, mediaContentType: 'IMAGE', alt: p.name || '' }],
-          }
-        );
-        const mediaErrors = mediaData?.data?.productCreateMedia?.mediaUserErrors;
-        if (mediaErrors && mediaErrors.length) {
-          console.error('Could not attach product image:', mediaErrors);
-        }
-      }
-
       // Make it actually visible to shoppers on the storefront, not
       // just present in the admin.
       if (product?.id && onlineStorePublicationId) {
