@@ -81,6 +81,7 @@ startOverBtn.addEventListener("click", () => {
   storePreview.hidden = true;
   document.getElementById("layout-chooser").hidden = true;
   document.getElementById("template-preview").hidden = true;
+  document.getElementById("publish-box").hidden = true;
   loadingState.hidden = true;
   emptyState.hidden = false;
 });
@@ -244,6 +245,7 @@ function setLoadingUI(isLoading) {
     storePreview.hidden = true;
     document.getElementById("layout-chooser").hidden = true;
     document.getElementById("template-preview").hidden = true;
+    document.getElementById("publish-box").hidden = true;
     loadingState.hidden = false;
   } else {
     loadingState.hidden = true;
@@ -333,6 +335,7 @@ async function showTemplatePreview(store, perProduct) {
     iframe.srcdoc = result.html;
     store.__templateFile = result.templateFile;
     document.getElementById("template-preview").hidden = false;
+    document.getElementById("publish-box").hidden = false;
     currentStore = store;
     postActions.hidden = false;
     saveDraft(store, [], perProduct);
