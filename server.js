@@ -481,6 +481,26 @@ app.post('/api/publish', async (req, res) => {
 
       if (variantId && p.price) {
         const priceNumber = String(p.price).replace(/[^0-9.]/g, '');
+        const variantInput = { id: variantId, price: priceNumber };
+
+        // p.aliItemId now actually holds the CJ product ID (field name
+        // kept for compatibility). Look up its real variant ID (vid)
+        // and save it as the SKU — this is what autoOrderWithCj reads
+        // later to actually place the CJ order automatically.
+        if (p.aliItemId) {
+          try {
+            const { getCjProductDetail } = require('./cj');
+            const detail = await getCjProductDetail(p.aliItemId);
+            if (detail?.vid) {
+              variantInput.sku = detail.vid;
+            } else {
+              console.log(`[CJ DEBUG] No vid found for pid ${p.aliItemId} during publish`);
+            }
+          } catch (err) {
+            console.error('CJ vid lookup failed during publish:', err);
+          }
+        }
+
         await shopifyGraphQL(
           `mutation productVariantsBulkUpdate($productId: ID!, $variants: [ProductVariantsBulkInput!]!) {
             productVariantsBulkUpdate(productId: $productId, variants: $variants) {
@@ -489,7 +509,7 @@ app.post('/api/publish', async (req, res) => {
           }`,
           {
             productId: product.id,
-            variants: [{ id: variantId, price: priceNumber }],
+            variants: [variantInput],
           }
         );
       }

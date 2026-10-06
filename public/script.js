@@ -172,16 +172,16 @@ async function generateStore() {
       return;
     }
 
-    // Real AliExpress data: photo, price, rating, sold — per listing.
-    // If a listing is missing, that product slot just keeps the AI's
+    // Real CJdropshipping data: photo, price — per listing. If a
+    // listing is missing, that product slot just keeps the AI's
     // made-up description/price and shows a blank photo box.
     let aliItems = [];
     try {
-      const imgRes = await fetch(`/api/aliexpress-search?q=${encodeURIComponent(product)}`);
+      const imgRes = await fetch(`/api/cj-search?q=${encodeURIComponent(product)}`);
       const imgData = await imgRes.json();
       aliItems = imgData.items || [];
     } catch (e) {
-      console.warn("AliExpress fetch failed:", e);
+      console.warn("CJ product search failed:", e);
     }
 
     const heroImages = aliItems.map((it) => it.image).filter(Boolean).slice(0, 6);

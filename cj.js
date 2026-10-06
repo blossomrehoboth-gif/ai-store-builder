@@ -34,6 +34,57 @@ async function cj(path, method = 'GET', body) {
   return r.json();
 }
 
+// Searches CJ's catalog by keyword. Returns structured items in the
+// same shape the frontend already expects from AliExpress search, so
+// script.js barely has to change. Debug-logs the raw shape on first
+// use since this endpoint's exact fields haven't been confirmed yet.
+async function searchCjProducts(keyword) {
+  const json = await cj(`/product/listV2?keyWord=${encodeURIComponent(keyword)}&page=1&size=10`);
+  const rawList = json?.data?.content?.[0]?.productList || json?.data?.content || json?.data?.list || [];
+  if (rawList.length > 0) {
+    console.log('[CJ DEBUG] First raw search item:', JSON.stringify(rawList[0]).slice(0, 500));
+  } else {
+    console.log('[CJ DEBUG] No items found for keyword:', keyword, '| raw response:', JSON.stringify(json).slice(0, 300));
+  }
+
+  return rawList.map((item) => {
+    const pid = item.pid || item.id || null;
+    const image = item.productImage || item.productImageSet?.[0] || null;
+    const priceRaw = item.sellPrice ?? item.price ?? null;
+    const price = priceRaw != null ? parseFloat(priceRaw) : null;
+    return {
+      pid,
+      itemId: pid, // alias so existing frontend code (expects itemId) keeps working
+      name: item.productNameEn || item.productName || null,
+      image,
+      price: Number.isFinite(price) ? price : null,
+      rating: null, // CJ search doesn't return a rating in this endpoint
+      sold: null,
+    };
+  }).filter((p) => p.pid);
+}
+
+// Fetches one product's full detail, including its variant ID (vid) —
+// required so Shopify's SKU can be set to something autoOrderWithCj
+// can actually use. Logs the raw shape on first use for the same
+// reason as above.
+async function getCjProductDetail(pid) {
+  const json = await cj(`/product/query?pid=${encodeURIComponent(pid)}`);
+  const p = json?.data;
+  if (p) {
+    console.log('[CJ DEBUG] Product detail raw:', JSON.stringify(p).slice(0, 500));
+  }
+  const variants = p?.variants || p?.productSkuList || [];
+  const firstVariant = variants[0] || {};
+  return {
+    pid,
+    vid: firstVariant.vid || firstVariant.variantId || p?.vid || null,
+    name: p?.productNameEn || p?.productName || null,
+    image: p?.productImage || p?.productImageSet?.[0] || null,
+    price: firstVariant.variantSellPrice != null ? parseFloat(firstVariant.variantSellPrice) : (p?.sellPrice != null ? parseFloat(p.sellPrice) : null),
+  };
+}
+
 // Places a CJ order for one incoming order object (mutates it in place
 // with cjOrderId / autoOrderResults, same fields the orders.html page
 // already knows how to display). Used both automatically (right after
@@ -41,6 +92,18 @@ async function cj(path, method = 'GET', body) {
 async function autoOrderWithCj(order) {
   if (order.cjOrderId) return { ok: false, error: `Already sent to CJ: ${order.cjOrderId}` };
   if (order.cjInFlight) return { ok: false, error: 'Already in progress.' };
+
+  // Safety switch for testing: set CJ_DRY_RUN=true in Render's
+  // environment variables to log what WOULD have been ordered,
+  // without actually spending any real CJ balance. Remove/set to
+  // false when you're ready to go live for real.
+  if (String(process.env.CJ_DRY_RUN).toLowerCase() === 'true') {
+    console.log(`[CJ DRY RUN] Would place a real CJ order for order #${order.orderNumber}:`, JSON.stringify(order.lineItems));
+    order.autoOrderResults = [{ title: 'CJ order (DRY RUN)', success: true, message: 'Dry run only — no real order placed.' }];
+    await db.updateOrder(order.orderId, { autoOrderResults: order.autoOrderResults });
+    return { ok: true, dryRun: true };
+  }
+
   order.cjInFlight = true;
 
   const fail = async (message) => {
@@ -118,6 +181,31 @@ module.exports = function registerCj(app) {
     }
   });
 
+  // Real product search — replaces AliExpress search as the main
+  // source of store content.
+  app.get('/api/cj-search', async (req, res) => {
+    try {
+      const q = req.query.q || 'phone';
+      const items = await searchCjProducts(q);
+      res.json({ items });
+    } catch (e) {
+      console.error('CJ search error:', e);
+      res.json({ items: [] });
+    }
+  });
+
+  // Fetch one product's detail including its variant ID (vid) — this
+  // is what gets saved into Shopify's SKU field at publish time.
+  app.get('/api/cj-detail/:pid', async (req, res) => {
+    try {
+      const detail = await getCjProductDetail(req.params.pid);
+      res.json({ ok: true, ...detail });
+    } catch (e) {
+      console.error('CJ detail error:', e);
+      res.json({ ok: false });
+    }
+  });
+
   // Look up a CJ product's variants (to find each vid).
   // pid is in the CJ product page URL.
   app.get('/api/cj/product/:pid', async (req, res) => {
@@ -143,3 +231,5 @@ module.exports = function registerCj(app) {
 };
 
 module.exports.autoOrderWithCj = autoOrderWithCj;
+module.exports.searchCjProducts = searchCjProducts;
+module.exports.getCjProductDetail = getCjProductDetail;
