@@ -4,8 +4,10 @@
 // store concept (name, tagline, spotlight product page content, sample
 // products, ad line), and returns it as JSON. Also handles the Shopify
 // app install (OAuth) so a seller can connect their real store.
+// Product data (search, photos, prices, stock) now comes from the CJ
+// Dropshipping API — AliExpress is no longer used.
 //
-// Persistent data (connected shops, AliExpress<->Shopify product
+// Persistent data (connected shops, CJ<->Shopify product
 // mappings, incoming orders) now lives in Postgres via db.js, so it
 // survives server restarts/redeploys instead of resetting each time.
 
@@ -15,13 +17,23 @@ const crypto = require('crypto');
 require('dotenv').config();
 const { renderTemplate } = require('./templater');
 const db = require('./db');
+const auth = require('./auth');
+const { requireUser, requireCjKey } = auth;
 
 const app = express();
+app.set('trust proxy', 1); // behind Render's proxy: needed for HTTPS cookies and correct IPs
 app.use((req, res, next) => {
   if (req.path === '/webhooks/orders-create') return next();
   express.json()(req, res, next);
 });
+app.use(auth.attachUser);   // who is logged in?
+app.use(auth.gatePages);    // builder / orders / account pages need a login
 app.use(express.static(path.join(__dirname, 'public')));
+auth.registerAuthRoutes(app);
+
+app.get('/login', (req, res) => res.sendFile(path.join(__dirname, 'public', 'login.html')));
+app.get('/account', (req, res) => res.sendFile(path.join(__dirname, 'public', 'account.html')));
+app.get('/dashboard', (req, res) => res.sendFile(path.join(__dirname, 'public', 'dashboard.html')));
 
 // Clean URL for the orders page (the file itself is public/orders.html).
 app.get('/orders', (req, res) => {
@@ -31,8 +43,22 @@ app.get('/orders', (req, res) => {
 const GROQ_API_KEY = process.env.GROQ_API_KEY;
 const PORT = process.env.PORT || 3000;
 
-app.post('/api/generate', async (req, res) => {
+// Stops one account from using up the AI quota (resets on restart / each day).
+const generateUsage = new Map();
+function overGenerateLimit(userId) {
+  const day = new Date().toISOString().slice(0, 10);
+  const rec = generateUsage.get(userId);
+  const limit = Number(process.env.GENERATE_LIMIT || 30);
+  if (!rec || rec.day !== day) { generateUsage.set(userId, { day, count: 1 }); return false; }
+  rec.count += 1;
+  return rec.count > limit;
+}
+
+app.post('/api/generate', requireUser, async (req, res) => {
   try {
+    if (overGenerateLimit(req.user.id)) {
+      return res.status(429).json({ error: 'Daily generation limit reached. Try again tomorrow.' });
+    }
     if (!GROQ_API_KEY) {
       return res.status(500).json({ error: 'Server is missing GROQ_API_KEY.' });
     }
@@ -141,7 +167,7 @@ Return ONLY a JSON object, with no markdown fences and no commentary, matching e
 // ---------- Shopify install / OAuth ----------
 const SHOPIFY_API_KEY = process.env.SHOPIFY_API_KEY;
 const SHOPIFY_API_SECRET = process.env.SHOPIFY_API_SECRET;
-const SHOPIFY_SCOPES = 'read_products,write_products';
+const SHOPIFY_SCOPES = 'read_products,write_products,read_publications,write_publications,read_orders';
 const APP_URL = (process.env.APP_URL || '').replace(/\/$/, '');
 
 // OAuth state only needs to survive a few seconds during the install
@@ -168,11 +194,11 @@ function validHmac(query) {
   return a.length === b.length && crypto.timingSafeEqual(a, b);
 }
 
-app.get('/auth', (req, res) => {
+app.get('/auth', requireUser, (req, res) => {
   const shop = req.query.shop;
   if (!validShop(shop)) return res.status(400).send('Invalid shop.');
   const state = crypto.randomBytes(16).toString('hex');
-  pendingStates.set(state, shop);
+  pendingStates.set(state, { shop, userId: req.user.id });
   const redirectUri = encodeURIComponent(`${APP_URL}/auth/callback`);
   res.redirect(
     `https://${shop}/admin/oauth/authorize?client_id=${SHOPIFY_API_KEY}` +
@@ -185,10 +211,12 @@ app.get('/auth/callback', async (req, res) => {
     const { shop, code, state } = req.query;
     if (!validShop(shop)) return res.status(400).send('Invalid shop.');
 
+    // Shopify can open the app without an install code; send those through /auth.
     if (!code) return res.redirect(`/auth?shop=${encodeURIComponent(shop)}`);
 
     if (!validHmac(req.query)) return res.status(400).send('Invalid signature.');
-    if (pendingStates.get(state) !== shop) return res.status(400).send('Invalid state.');
+    const pending = pendingStates.get(state);
+    if (!pending || pending.shop !== shop) return res.status(400).send('Invalid state. Start again from the Account page.');
     pendingStates.delete(state);
 
     const r = await fetch(`https://${shop}/admin/oauth/access_token`, {
@@ -206,9 +234,10 @@ app.get('/auth/callback', async (req, res) => {
       return res.status(502).send('Could not connect to Shopify.');
     }
 
-    await db.setShopToken(shop, data.access_token);
-    console.log('Connected shop:', shop);
-    res.redirect(`/?shop=${encodeURIComponent(shop)}&connected=1`);
+    // The store now belongs to the user who started the connection.
+    await db.setShopToken(shop, data.access_token, pending.userId);
+    console.log('Connected shop:', shop, 'for user', pending.userId);
+    res.redirect(`/account?connected=${encodeURIComponent(shop)}`);
   } catch (err) {
     console.error(err);
     res.status(500).send('Something went wrong.');
@@ -275,14 +304,17 @@ app.post('/webhooks/orders-create', express.raw({ type: 'application/json' }), a
 
     const lineItems = await Promise.all(
       (order.line_items || []).map(async (li) => {
-        const mapped = await db.getAliMapping(`gid://shopify/Product/${li.product_id}`);
+        const mapped = await db.getProductMapping(`gid://shopify/Product/${li.product_id}`);
         return {
           title: li.title,
           quantity: li.quantity,
-          sku: li.sku || null,
-          aliItemId: mapped?.aliItemId || null,
-          aliLink: mapped?.aliItemId ? `https://www.aliexpress.com/item/${mapped.aliItemId}.html` : null,
-          aliImage: mapped?.aliImage || null,
+          // Use the Shopify SKU if set, otherwise fall back to the CJ vid saved at publish time.
+          sku: li.sku || mapped?.cjVid || null,
+          cjPid: mapped?.cjPid || null,
+          // aliLink / aliImage are kept as field names so the existing orders.html
+          // keeps working; they now hold the CJ product link and photo.
+          aliLink: mapped?.cjPid ? `https://cjdropshipping.com/product/p-${mapped.cjPid}.html` : null,
+          aliImage: mapped?.image || null,
         };
       })
     );
@@ -296,6 +328,8 @@ app.post('/webhooks/orders-create', express.raw({ type: 'application/json' }), a
       address: order.shipping_address || null,
       lineItems,
       fulfilled: false,
+      totalPrice: order.total_price != null ? parseFloat(order.total_price) : null,
+      currency: order.currency || null,
     };
     await db.insertOrder(newOrder);
 
@@ -313,13 +347,15 @@ app.post('/webhooks/orders-create', express.raw({ type: 'application/json' }), a
 });
 
 // ---------- Price & inventory monitoring ----------
-// Manual-trigger only (you tap a button) — not on a timer, since
-// checking many products automatically would burn through the
-// AliExpress API quota fast.
-app.post('/api/check-prices', async (req, res) => {
+// Manual-trigger only (you tap a button). Checks CJ's current cost and stock
+// for every published product. CJ allows ~1 request/second, so this takes
+// about 2 seconds per product.
+const { getCjProduct, getCjStock, sleep } = require('./cj');
+
+app.post('/api/check-prices', requireUser, requireCjKey, async (req, res) => {
   try {
     const results = [];
-    const entries = await db.getAllAliMappings();
+    const entries = await db.getAllProductMappings(req.user.id);
 
     for (const [shopifyProductId, info] of entries) {
       const token = await db.getShopToken(info.shop);
@@ -328,43 +364,38 @@ app.post('/api/check-prices', async (req, res) => {
         continue;
       }
 
-      const url = `https://aliexpress-datahub.p.rapidapi.com/item_detail?itemId=${info.aliItemId}&region=US&currency=USD&locale=en_US`;
-      const r = await fetch(url, {
-        headers: {
-          'x-rapidapi-key': process.env.ALIEXPRESS_API_KEY,
-          'x-rapidapi-host': 'aliexpress-datahub.p.rapidapi.com',
-        },
-      });
-      const data = await r.json();
-      const item = data?.result?.item;
-      if (!item) {
+      const product = info.cjPid ? await getCjProduct(req.cjKey, info.cjPid) : null;
+      if (!product) {
         results.push({ title: info.title, ok: false, reason: 'not-found' });
         continue;
       }
 
-      const def = item?.sku?.def || {};
-      const newAliPrice = def.promotionPrice != null ? parseFloat(def.promotionPrice) : def.price != null ? parseFloat(def.price) : null;
-      const inStock = item.inventory != null ? item.inventory > 0 : (item.quantity != null ? item.quantity > 0 : null);
+      // Use the exact variant we sell, not just the default one.
+      const variant = (product.variants || []).find((v) => v.vid === info.cjVid);
+      const newCost = variant?.cost ?? product.cost;
+
+      let inStock = null;
+      if (info.cjVid) {
+        const units = await getCjStock(req.cjKey, info.cjVid);
+        inStock = units == null ? null : units > 0;
+      }
 
       info.lastCheckedAt = new Date().toISOString();
       info.inStock = inStock;
 
-      if (newAliPrice == null || info.lastKnownAliPrice == null) {
-        info.lastKnownAliPrice = newAliPrice;
-        await db.setAliMapping(shopifyProductId, info);
+      if (newCost == null || info.lastKnownCost == null) {
+        info.lastKnownCost = newCost;
+        await db.setProductMapping(shopifyProductId, info);
         results.push({ title: info.title, ok: true, changed: false, inStock });
         continue;
       }
 
-      const priceChanged = Math.abs(newAliPrice - info.lastKnownAliPrice) > 0.01;
-      if (priceChanged && info.variantId && info.shopifyPrice != null) {
-        // Keep the same markup: shift Shopify's price by the same
-        // dollar amount the AliExpress price moved.
-        const delta = newAliPrice - info.lastKnownAliPrice;
-        const newShopifyPrice = Math.max(0.01, info.shopifyPrice + delta);
+      const costChanged = Math.abs(newCost - info.lastKnownCost) > 0.01;
+      if (costChanged && info.variantId && info.shopifyPrice != null && info.lastKnownCost > 0) {
+        // Keep the same markup: scale Shopify's price by the same ratio the cost moved.
+        const newShopifyPrice = Math.max(0.01, info.shopifyPrice * (newCost / info.lastKnownCost));
 
-        const graphqlUrl = `https://${info.shop}/admin/api/2024-10/graphql.json`;
-        await fetch(graphqlUrl, {
+        await fetch(`https://${info.shop}/admin/api/2024-10/graphql.json`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'X-Shopify-Access-Token': token },
           body: JSON.stringify({
@@ -380,13 +411,14 @@ app.post('/api/check-prices', async (req, res) => {
           }),
         });
 
-        const oldAliPrice = info.lastKnownAliPrice;
+        const oldCost = info.lastKnownCost;
         info.shopifyPrice = newShopifyPrice;
-        info.lastKnownAliPrice = newAliPrice;
-        await db.setAliMapping(shopifyProductId, info);
-        results.push({ title: info.title, ok: true, changed: true, oldAliPrice, newAliPrice, newShopifyPrice, inStock });
+        info.lastKnownCost = newCost;
+        await db.setProductMapping(shopifyProductId, info);
+        // oldAliPrice / newAliPrice are kept as key names so the current orders.html still reads them.
+        results.push({ title: info.title, ok: true, changed: true, oldAliPrice: oldCost, newAliPrice: newCost, newShopifyPrice, inStock });
       } else {
-        await db.setAliMapping(shopifyProductId, info);
+        await db.setProductMapping(shopifyProductId, info);
         results.push({ title: info.title, ok: true, changed: false, inStock });
       }
     }
@@ -398,35 +430,209 @@ app.post('/api/check-prices', async (req, res) => {
   }
 });
 
-app.get('/api/price-status', async (req, res) => {
-  const entries = await db.getAllAliMappings();
-  const items = entries.map(([shopifyProductId, info]) => ({ shopifyProductId, ...info }));
+app.get('/api/price-status', requireUser, async (req, res) => {
+  const entries = await db.getAllProductMappings(req.user.id);
+  // aliItemId / lastKnownAliPrice kept as aliases for the current orders.html.
+  const items = entries.map(([shopifyProductId, info]) => ({
+    shopifyProductId,
+    ...info,
+    aliItemId: info.cjPid,
+    lastKnownAliPrice: info.lastKnownCost,
+  }));
   res.json({ items });
 });
 // ---------- end price & inventory monitoring ----------
 
-app.get('/api/orders', async (req, res) => {
-  res.json({ orders: await db.getOrders() });
+// ---------- Seller dashboard ----------
+function orderStatus(o) {
+  if (o.fulfilled) return 'fulfilled';
+  if (o.cjOrderId) return 'sent';
+  if (o.autoOrderResults?.[0]?.success === false) return 'failed';
+  return 'processing';
+}
+
+app.get('/api/dashboard', requireUser, async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const [shops, orders, mappings] = await Promise.all([
+      db.getShopsForUser(userId),
+      db.getOrders(userId),
+      db.getAllProductMappings(userId),
+    ]);
+
+    const weekAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
+    const money = {}; // currency -> { total, week }
+    const counts = { total: 0, week: 0, sent: 0, fulfilled: 0, failed: 0, processing: 0 };
+    const perShop = Object.fromEntries(shops.map((s) => [s, { shop: s, orders: 0, products: 0, revenue: 0 }]));
+
+    for (const o of orders) {
+      const st = orderStatus(o);
+      counts.total += 1;
+      counts[st] += 1;
+      const recent = new Date(o.receivedAt).getTime() >= weekAgo;
+      if (recent) counts.week += 1;
+      if (o.totalPrice != null) {
+        const cur = o.currency || 'USD';
+        money[cur] = money[cur] || { total: 0, week: 0 };
+        money[cur].total += o.totalPrice;
+        if (recent) money[cur].week += o.totalPrice;
+        if (perShop[o.shop]) perShop[o.shop].revenue += o.totalPrice;
+      }
+      if (perShop[o.shop]) perShop[o.shop].orders += 1;
+    }
+
+    const products = mappings.map(([id, m]) => {
+      if (perShop[m.shop]) perShop[m.shop].products += 1;
+      return {
+        title: m.title,
+        shop: m.shop,
+        image: m.image,
+        cost: m.lastKnownCost,
+        price: m.shopifyPrice,
+        profit: m.lastKnownCost != null && m.shopifyPrice != null ? m.shopifyPrice - m.lastKnownCost : null,
+        inStock: m.inStock,
+        lastCheckedAt: m.lastCheckedAt,
+      };
+    });
+
+    // CJ balance. With the shared key it is the owner's money, so only admins see it.
+    const shared = auth.keyMode() === 'shared';
+    let cjBalance = null;
+    try {
+      let key = null;
+      if (shared) {
+        if (auth.isAdmin(req.user.email)) key = process.env.CJ_API_KEY || null;
+      } else {
+        key = auth.decrypt(await db.getUserCjKeyEnc(userId));
+      }
+      if (key) {
+        const b = await require('./cj').cj(key, '/shopping/pay/getBalance');
+        const amt = b?.data?.amount ?? b?.data?.balance ?? null;
+        cjBalance = amt != null ? Number(amt) : null;
+      }
+    } catch (e) {
+      console.error('CJ balance lookup failed:', e.message || e);
+    }
+
+    res.json({
+      email: req.user.email,
+      keyMode: auth.keyMode(),
+      hasCjKey: shared ? true : req.user.hasCjKey,
+      cjBalance,
+      counts,
+      money,
+      shops: Object.values(perShop),
+      products,
+      outOfStock: products.filter((p) => p.inStock === false).length,
+      orders: orders.slice(0, 10).map((o) => ({
+        orderId: o.orderId,
+        orderNumber: o.orderNumber,
+        shop: o.shop,
+        receivedAt: o.receivedAt,
+        customerName: o.customerName,
+        status: orderStatus(o),
+        message: o.autoOrderResults?.[0]?.message || null,
+        total: o.totalPrice,
+        currency: o.currency,
+        items: (o.lineItems || []).map((li) => `${li.quantity} × ${li.title}`),
+      })),
+    });
+  } catch (err) {
+    console.error('Dashboard failed:', err);
+    res.status(500).json({ error: 'Could not load the dashboard.' });
+  }
+});
+// ---------- end seller dashboard ----------
+
+app.get('/api/orders', requireUser, async (req, res) => {
+  res.json({ orders: await db.getOrders(req.user.id) });
 });
 
-app.post('/api/orders/:orderId/fulfilled', async (req, res) => {
-  const order = await db.getOrderById(req.params.orderId);
-  if (order) await db.updateOrder(req.params.orderId, { fulfilled: true });
-  res.json({ ok: !!order });
+app.post('/api/orders/:orderId/fulfilled', requireUser, async (req, res) => {
+  if (!(await db.orderBelongsToUser(req.params.orderId, req.user.id))) {
+    return res.json({ ok: false });
+  }
+  await db.updateOrder(req.params.orderId, { fulfilled: true });
+  res.json({ ok: true });
 });
 // ---------- end order fulfillment ----------
-require('./cj')(app); // CJ Dropshipping: balance/product-lookup routes + manual retry route
+require('./cj')(app); // CJ Dropshipping: product search/lookup, balance, SKU tools, manual retry route
 
 // ---------- Publish generated concept to Shopify ----------
-app.post('/api/publish', async (req, res) => {
+// Uses the REST Admin API to mark a product published — this avoids the
+// GraphQL `publications` query, which regular (non-channel) custom apps
+// often can't read even with the right scopes. REST's `published: true`
+// does the same thing in one simple call with no extra permissions.
+async function publishProductRest(shop, token, gidOrNumericId) {
+  const numericId = String(gidOrNumericId).split('/').pop();
+  const r = await fetch(`https://${shop}/admin/api/2024-10/products/${numericId}.json`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', 'X-Shopify-Access-Token': token },
+    body: JSON.stringify({ product: { id: Number(numericId), published: true } }),
+  });
+  const data = await r.json();
+  if (!r.ok) {
+    console.error(`Could not publish product ${numericId}:`, data);
+  }
+  return r.ok;
+}
+
+// Shows what actually exists in the shop: open /api/shop-products?shop=your-shop.myshopify.com
+app.get('/api/shop-products', requireUser, async (req, res) => {
+  try {
+    const shop = req.query.shop;
+    if (!validShop(shop)) return res.status(400).json({ error: 'Invalid shop.' });
+    const token = await db.getShopTokenForUser(shop, req.user.id);
+    if (!token) return res.status(403).json({ error: 'That store is not connected to your account.' });
+    const r = await fetch(
+      `https://${shop}/admin/api/2024-10/products.json?limit=50&fields=id,title,status,published_at,created_at`,
+      { headers: { 'X-Shopify-Access-Token': token } }
+    );
+    const data = await r.json();
+    res.json({ httpStatus: r.status, products: data.products || [], raw: data.products ? undefined : data });
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+// New products created through the API are NOT automatically in the theme's
+// "Featured products" (Home page) collection, so they never show on the homepage.
+// This adds a product to the default "Home page" collection (handle: frontpage).
+async function addToHomepageCollection(shop, token, gidOrNumericId) {
+  try {
+    const base = `https://${shop}/admin/api/2024-10`;
+    const headers = { 'Content-Type': 'application/json', 'X-Shopify-Access-Token': token };
+    const cr = await fetch(`${base}/custom_collections.json?handle=frontpage&fields=id`, { headers });
+    const cj = await cr.json();
+    const collectionId = cj.custom_collections?.[0]?.id;
+    if (!collectionId) return false;
+    const productId = Number(String(gidOrNumericId).split('/').pop());
+    const r = await fetch(`${base}/collects.json`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ collect: { product_id: productId, collection_id: collectionId } }),
+    });
+    return r.ok;
+  } catch (e) {
+    console.error('Could not add to Home page collection:', e);
+    return false;
+  }
+}
+
+function plainText(html, max) {
+  const t = String(html || '').replace(/<[^>]*>/g, ' ').replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim();
+  return t.length > max ? t.slice(0, max).replace(/\s\S*$/, '') + '…' : t;
+}
+
+app.post('/api/publish', requireUser, requireCjKey, async (req, res) => {
   try {
     const { shop, concept } = req.body;
     if (!validShop(shop)) {
       return res.status(400).json({ error: 'Invalid shop.' });
     }
-    const token = await db.getShopToken(shop);
+    const token = await db.getShopTokenForUser(shop, req.user.id);
     if (!token) {
-      return res.status(401).json({ error: 'This store is not connected. Please reinstall the app.' });
+      return res.status(403).json({ error: 'That store is not connected to your account. Connect it on the Account page first.' });
     }
     if (!concept || !Array.isArray(concept.products) || concept.products.length === 0) {
       return res.status(400).json({ error: 'Missing store concept or products to publish.' });
@@ -464,7 +670,7 @@ app.post('/api/publish', async (req, res) => {
         {
           input: {
             title: p.name,
-            descriptionHtml: p.description || '',
+            descriptionHtml: p.description ? `<p>${p.description}</p>` : '',
             vendor: concept.storeName || 'AI Store Builder',
           },
         }
@@ -476,58 +682,91 @@ app.post('/api/publish', async (req, res) => {
         continue;
       }
 
+      if (createData.errors || !createData.data?.productCreate?.product) {
+        const detail = JSON.stringify(createData.errors || createData).slice(0, 300);
+        console.error(`Shopify did not create "${p.name}":`, detail);
+        results.push({ name: p.name, ok: false, error: `Shopify did not create it: ${detail}` });
+        continue;
+      }
+
       const product = createData.data?.productCreate?.product;
       const variantId = product?.variants?.edges?.[0]?.node?.id;
 
-      if (variantId && p.price) {
-        const priceNumber = String(p.price).replace(/[^0-9.]/g, '');
-        const variantInput = { id: variantId, price: priceNumber };
-
-        // p.aliItemId now actually holds the CJ product ID (field name
-        // kept for compatibility). Look up its real variant ID (vid)
-        // and save it as the SKU — this is what autoOrderWithCj reads
-        // later to actually place the CJ order automatically.
-        if (p.aliItemId) {
-          try {
-            const { getCjProductDetail } = require('./cj');
-            const detail = await getCjProductDetail(p.aliItemId);
-            if (detail?.vid) {
-              variantInput.sku = detail.vid;
-            } else {
-              console.log(`[CJ DEBUG] No vid found for pid ${p.aliItemId} during publish`);
-            }
-          } catch (err) {
-            console.error('CJ vid lookup failed during publish:', err);
-          }
+      // Look up the real CJ variant (vid) and cost for this product. The vid is
+      // saved as the Shopify SKU so CJ orders work with no manual SKU step.
+      let cj = null;
+      if (p.cjPid) {
+        try {
+          cj = await getCjProduct(req.cjKey, p.cjPid);
+        } catch (e) {
+          console.error(`CJ lookup failed for ${p.cjPid}:`, e);
         }
+      }
 
-        await shopifyGraphQL(
+      let priceNumber = p.price ? parseFloat(String(p.price).replace(/[^0-9.]/g, '')) : null;
+      if (cj?.price != null) priceNumber = cj.price; // always cost x markup, never below cost
+
+      if (variantId && (priceNumber != null || cj?.vid)) {
+        const variantInput = { id: variantId };
+        if (priceNumber != null) variantInput.price = priceNumber.toFixed(2);
+        if (cj?.vid) variantInput.inventoryItem = { sku: cj.vid };
+        const upd = await shopifyGraphQL(
           `mutation productVariantsBulkUpdate($productId: ID!, $variants: [ProductVariantsBulkInput!]!) {
             productVariantsBulkUpdate(productId: $productId, variants: $variants) {
               userErrors { field message }
             }
           }`,
-          {
-            productId: product.id,
-            variants: [variantInput],
-          }
+          { productId: product.id, variants: [variantInput] }
         );
+        const updErrors = upd.data?.productVariantsBulkUpdate?.userErrors;
+        if (updErrors && updErrors.length) console.error('Variant update issue:', updErrors);
       }
 
-      if (product?.id && p.aliItemId) {
-        await db.setAliMapping(product.id, {
+      // Product photo from CJ.
+      const imageSrc = cj?.image || p.cjImage;
+      if (product?.id && imageSrc) {
+        try {
+          const numericId = String(product.id).split('/').pop();
+          await fetch(`https://${shop}/admin/api/${apiVersion}/products/${numericId}/images.json`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-Shopify-Access-Token': token },
+            body: JSON.stringify({ image: { src: imageSrc } }),
+          });
+        } catch (e) {
+          console.error('Could not add product image:', e);
+        }
+      }
+
+      // Publishing the product alone doesn't make it visible on the
+      // storefront — it has to be explicitly marked published.
+      let publishedOk = false;
+      if (product?.id) {
+        publishedOk = await publishProductRest(shop, token, product.id);
+        await addToHomepageCollection(shop, token, product.id);
+      }
+
+      if (product?.id && p.cjPid) {
+        await db.setProductMapping(product.id, {
           shop,
           variantId: variantId || null,
-          aliItemId: p.aliItemId,
-          aliImage: p.aliImage || null,
+          cjPid: p.cjPid,
+          cjVid: cj?.vid || null,
+          image: imageSrc || null,
           title: p.name,
-          lastKnownAliPrice: p.aliPrice != null ? p.aliPrice : null,
-          shopifyPrice: p.price ? parseFloat(String(p.price).replace(/[^0-9.]/g, '')) : null,
+          lastKnownCost: cj?.cost ?? (p.cjCost != null ? p.cjCost : null),
+          shopifyPrice: priceNumber,
           lastCheckedAt: null,
         });
       }
 
-      results.push({ name: p.name, ok: true, id: product?.id });
+      const warning = !publishedOk
+        ? 'Created in Shopify but could not be made visible on the Online Store (check the server logs).'
+        : !p.cjPid
+        ? 'No CJ product linked — set a CJ vid as the SKU before orders can be sent to CJ.'
+        : !cj?.vid
+        ? 'Could not read the CJ variant — set the CJ vid as the SKU manually.'
+        : null;
+      results.push({ name: p.name, ok: true, id: product?.id, warning });
     }
 
     // Make sure this shop is set up to notify us the moment a real
@@ -540,209 +779,52 @@ app.post('/api/publish', async (req, res) => {
     res.status(500).json({ error: 'Something went wrong publishing to Shopify.' });
   }
 });
-// ---------- end publish ----------
-
-// ---------- AliExpress product lookup ----------
-app.get('/api/aliexpress/:itemId', async (req, res) => {
+// One-time cleanup: publish every existing product in this shop to the
+// Online Store channel (fixes products created before the fix above).
+// Visit this URL once in your browser: /api/publish-existing?shop=your-shop.myshopify.com
+app.get('/api/publish-existing', requireUser, async (req, res) => {
   try {
-    const { itemId } = req.params;
-    const key = process.env.ALIEXPRESS_API_KEY || '';
+    const shop = req.query.shop;
+    if (!validShop(shop)) return res.status(400).json({ error: 'Invalid shop.' });
+    const token = await db.getShopTokenForUser(shop, req.user.id);
+    if (!token) return res.status(403).json({ error: 'That store is not connected to your account.' });
 
-    const url = `https://aliexpress-datahub.p.rapidapi.com/item_detail?itemId=${itemId}&region=US&currency=USD&locale=en_US`;
-
-    const response = await fetch(url, {
-      headers: {
-        'x-rapidapi-key': key,
-        'x-rapidapi-host': 'aliexpress-datahub.p.rapidapi.com',
-      },
-    });
-    const data = await response.json();
-
-    return res.json({ debug_status: response.status, debug_key_length: key.length, debug_raw: data });
-  } catch (err) {
-    res.status(500).json({ error: 'Could not fetch product from AliExpress.', detail: String(err) });
-  }
-});
-// ---------- end AliExpress product lookup ----------
-
-// ---------- AliExpress product search ----------
-// Uses item_search_2 (confirmed working) and pulls real structured data
-// per listing: photo, price, original price, star rating, and units sold
-// — not just a bag of image URLs. Any listing missing a field just omits
-// that field; the frontend fills in an AI-written fallback for price.
-function parseAliItems(data) {
-  const list = data?.result?.resultList || [];
-  return list
-    .map((entry) => {
-      const item = entry?.item || entry;
-      if (!item?.itemId) return null;
-
-      const def = item?.sku?.def || {};
-      const rating = def.averageStarRate != null ? parseFloat(def.averageStarRate) : null;
-      const promotionPrice = def.promotionPrice != null ? parseFloat(def.promotionPrice) : null;
-      const listPrice = def.price != null ? parseFloat(def.price) : null;
-      const sold = item.sales != null ? parseInt(String(item.sales).replace(/[^0-9]/g, ''), 10) : null;
-
-      let image = item.image;
-      if (typeof image === 'string' && image.startsWith('//')) image = 'https:' + image;
-
-      return {
-        itemId: item.itemId,
-        title: item.title || null,
-        image: image || null,
-        price: promotionPrice ?? listPrice ?? null,
-        originalPrice: listPrice ?? null,
-        rating: isNaN(rating) ? null : rating,
-        sold: isNaN(sold) ? null : sold,
-      };
-    })
-    .filter(Boolean);
-}
-
-// Fetches ONE specific AliExpress product (used when the seller pastes
-// a product link instead of a niche word). Never invents data — any
-// field we can't find comes back null.
-// Follows AliExpress short/campaign links (only AliExpress hosts) to
-// find the numeric product ID inside.
-app.get('/api/resolve-ali-link', async (req, res) => {
-  try {
-    let url = String(req.query.url || '');
-    const okHost = (u) => {
-      try { return /(^|\.)aliexpress\.(com|us|ru)$/i.test(new URL(u).hostname); } catch (e) { return false; }
-    };
-    const pats = [
-      /item\/(\d{8,})/i,
-      /[?&](?:itemId|productId|productIds|item_id)=(\d{8,})/i,
-      /x_object_id(?:%3A|:)(\d{8,})/i,
-      /\/(\d{13,})\.html/i,
-    ];
-    const findId = (t) => {
-      for (const p of pats) { const m = String(t).match(p); if (m) return m[1]; }
-      return null;
-    };
-    if (!okHost(url)) return res.json({ ok: false });
-    let id = findId(url);
-    if (id) return res.json({ ok: true, itemId: id });
-
-    for (let hop = 0; hop < 5; hop++) {
-      const r = await fetch(url, { redirect: 'manual', headers: { 'user-agent': 'Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Chrome/120 Mobile Safari/537.36' } });
-      const loc = r.headers.get('location');
-      if (r.status >= 300 && r.status < 400 && loc) {
-        url = new URL(loc, url).toString();
-        if (!okHost(url)) break;
-        id = findId(url);
-        if (id) return res.json({ ok: true, itemId: id });
-        continue;
+    let count = 0;
+    let pageInfo = '';
+    let hasNext = true;
+    while (hasNext) {
+      const r = await fetch(
+        `https://${shop}/admin/api/2024-10/products.json?limit=50&fields=id${pageInfo}`,
+        { headers: { 'X-Shopify-Access-Token': token } }
+      );
+      const data = await r.json();
+      const products = data.products || [];
+      for (const p of products) {
+        await publishProductRest(shop, token, p.id);
+        count++;
       }
-      id = findId((await r.text()).slice(0, 300000));
-      return res.json(id ? { ok: true, itemId: id } : { ok: false });
-    }
-    res.json({ ok: false });
-  } catch (err) {
-    res.json({ ok: false });
-  }
-});
 
-// Last-resort fallback: recursively search the raw item object for
-// anything that looks like an image URL, in case the normal
-// item.images / item.image fields are empty for this listing.
-function findAnyImageUrl(obj, depth) {
-  if (depth > 4 || obj == null) return null;
-  if (typeof obj === 'string') {
-    if (/^(https?:)?\/\/.+\.(jpg|jpeg|png|webp)/i.test(obj)) {
-      return obj.startsWith('//') ? 'https:' + obj : obj;
-    }
-    return null;
-  }
-  if (Array.isArray(obj)) {
-    for (const v of obj) {
-      const found = findAnyImageUrl(v, depth + 1);
-      if (found) return found;
-    }
-    return null;
-  }
-  if (typeof obj === 'object') {
-    for (const key of Object.keys(obj)) {
-      const found = findAnyImageUrl(obj[key], depth + 1);
-      if (found) return found;
-    }
-  }
-  return null;
-}
-
-app.get('/api/aliexpress-item/:itemId', async (req, res) => {
-  try {
-    const itemId = String(req.params.itemId).replace(/\D/g, '');
-    if (!itemId) return res.json({ ok: false, reason: 'bad-id' });
-
-    // Some products only exist in certain regional catalogs, so try a
-    // few variations before giving up (each failed try is logged).
-    const attempts = [
-      `item_detail?itemId=${itemId}&region=US&currency=USD&locale=en_US`,
-      `item_detail?itemId=${itemId}`,
-      `item_detail?itemId=${itemId}&region=NG&currency=USD&locale=en_US`,
-      `item_detail_6?itemId=${itemId}&region=US&currency=USD&locale=en_US`,
-      `item_detail_6?itemId=${itemId}`,
-    ];
-    let data = null;
-    for (const path of attempts) {
-      const response = await fetch(`https://aliexpress-datahub.p.rapidapi.com/${path}`, {
-        headers: {
-          'x-rapidapi-key': process.env.ALIEXPRESS_API_KEY,
-          'x-rapidapi-host': 'aliexpress-datahub.p.rapidapi.com',
-        },
-      });
-      const d = await response.json();
-      if (d?.result?.item) { data = d; console.log(`AliExpress item ${itemId} found via ${path.split('?')[0]} (${path.includes('region') ? path.match(/region=(\w+)/)[1] : 'no region'})`); break; }
-      console.log(`AliExpress item ${itemId} try "${path}" -> ${JSON.stringify(d?.result?.status?.msg || d?.message || d).slice(0, 160)}`);
-    }
-    if (!data) {
-      return res.json({ ok: false, reason: 'not-found' });
+      // REST pagination: Shopify returns a Link header with a page_info
+      // cursor when there's more to fetch.
+      const link = r.headers.get('link') || '';
+      const match = link.match(/<[^>]*page_info=([^&>]+)[^>]*>;\s*rel="next"/);
+      if (match) {
+        pageInfo = `&page_info=${match[1]}`;
+      } else {
+        hasNext = false;
+      }
     }
 
-    const item = data?.result?.item;
-    if (!item) {
-      console.log(`AliExpress item ${itemId} -> no item. Result keys:`, Object.keys(data?.result || {}));
-      return res.json({ ok: false, reason: 'no-item' });
-    }
-
-    const fixUrl = (u) => (typeof u === 'string' ? (u.startsWith('//') ? 'https:' + u : u) : null);
-    let images = (Array.isArray(item.images) ? item.images : []).map(fixUrl).filter(Boolean);
-    if (images.length === 0) {
-      const one = fixUrl(item.image) || findAnyImageUrl(item, 0);
-      if (one) images = [one];
-    }
-
-    const def = item?.sku?.def || {};
-    const promo = def.promotionPrice != null ? parseFloat(def.promotionPrice) : null;
-    const list = def.price != null ? parseFloat(def.price) : null;
-    const ratingRaw = item.averageStarRate ?? item.reviews?.averageStar ?? item.reviews?.averageStarRate ?? null;
-    const rating = ratingRaw != null ? parseFloat(ratingRaw) : null;
-    const sold = item.sales != null ? parseInt(String(item.sales).replace(/[^0-9]/g, ''), 10) : null;
-
-    console.log(`AliExpress item ${itemId} -> ${images.length} photos, price ${promo ?? list}, rating ${rating}. Item keys:`, Object.keys(item));
-
-    return res.json({
-      ok: true,
-      item: {
-        itemId,
-        title: item.title || null,
-        image: images[0] || null,
-        images: images.slice(0, 6),
-        price: Number.isFinite(promo) ? promo : Number.isFinite(list) ? list : null,
-        originalPrice: Number.isFinite(list) ? list : null,
-        rating: Number.isFinite(rating) ? rating : null,
-        sold: Number.isFinite(sold) ? sold : null,
-      },
-    });
+    res.json({ ok: true, publishedCount: count });
   } catch (err) {
     console.error(err);
-    res.json({ ok: false, reason: 'exception' });
+    res.status(500).json({ error: 'Something went wrong.' });
   }
 });
+// ---------- end publish ----------
 
 // ---------- Template-based page rendering (35 design library) ----------
-app.post('/api/render-template', (req, res) => {
+app.post('/api/render-template', requireUser, (req, res) => {
   try {
     const { storeName, tagline, accentColor, products, templateChoice } = req.body;
     if (!storeName || !Array.isArray(products) || products.length === 0) {
@@ -757,41 +839,6 @@ app.post('/api/render-template', (req, res) => {
 });
 // ---------- end template-based page rendering ----------
 
-app.get('/api/aliexpress-search', async (req, res) => {
-  try {
-    const q = req.query.q || 'phone charger';
-    const debug = req.query.debug === '1';
-    const url = `https://aliexpress-datahub.p.rapidapi.com/item_search_2?q=${encodeURIComponent(q)}&page=1&sort=default`;
-
-    const response = await fetch(url, {
-      headers: {
-        'x-rapidapi-key': process.env.ALIEXPRESS_API_KEY,
-        'x-rapidapi-host': 'aliexpress-datahub.p.rapidapi.com',
-      },
-    });
-
-    if (!response.ok) {
-      const detail = await response.text();
-      if (debug) return res.json({ items: [], debug_stage: 'not_ok', debug_status: response.status, debug_detail: detail });
-      return res.json({ items: [] });
-    }
-
-    const data = await response.json();
-
-    if (data?.result?.status?.data === 'error') {
-      if (debug) return res.json({ items: [], debug_stage: 'api_error', debug_raw: data });
-      return res.json({ items: [] });
-    }
-
-    const items = parseAliItems(data);
-    if (debug) return res.json({ items, debug_stage: 'ok', debug_raw_keys: Object.keys(data || {}), debug_result_list_length: (data?.result?.resultList || []).length, debug_raw_sample: data });
-    return res.json({ items });
-  } catch (err) {
-    if (req.query.debug === '1') return res.json({ items: [], debug_stage: 'exception', debug_error: String(err) });
-    res.json({ items: [] });
-  }
-});
-// ---------- end AliExpress product search ----------
 
 // Create the database tables (if they don't exist yet) before accepting traffic.
 db.initDb()
