@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Account — AI Store Builder</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; background: #f6f1e8; color: #2a2a2a; padding: 20px; }
+  .wrap { max-width: 560px; margin: 0 auto; }
+  h1 { margin: 6px 0 4px; font-size: 28px; }
+  .who { color: #6b665c; margin-bottom: 18px; }
+  .card { background: #fff; border: 1px solid #e6dfd0; border-radius: 16px; padding: 20px; margin-bottom: 16px; }
+  .card h2 { margin: 0 0 6px; font-size: 19px; }
+  .card p { margin: 0 0 12px; color: #6b665c; font-size: 15px; line-height: 1.45; }
+  input { width: 100%; padding: 13px 12px; font-size: 16px; border: 1px solid #cfc7b5; border-radius: 10px; background: #fffdf8; }
+  button, a.btn { display: block; width: 100%; margin-top: 12px; padding: 14px; font-size: 16px; font-weight: 600; color: #fff; background: #8b6a2f; border: 0; border-radius: 10px; cursor: pointer; text-align: center; text-decoration: none; }
+  button.green, a.btn.green { background: #2e7d32; }
+  button.plain { background: #fff; color: #5a554a; border: 1px solid #cfc7b5; }
+  button:disabled { opacity: .6; }
+  .ok { color: #2e7d32; font-weight: 600; }
+  .bad { color: #b3261e; }
+  .msg { margin-top: 10px; min-height: 18px; font-size: 15px; }
+  ul { margin: 0 0 4px; padding-left: 20px; }
+  li { margin: 4px 0; word-break: break-all; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Account</h1>
+  <div class="who" id="who">Loading…</div>
+
+  <div class="card" id="cjCard" hidden>
+    <h2>Your CJ API key</h2>
+    <p id="cjStatus">Orders from your stores are sent to <b>your own</b> CJ Dropshipping account, using this key.</p>
+    <input id="cjKey" type="password" placeholder="Paste your CJ API key" autocomplete="off">
+    <button id="saveKey">Save CJ key</button>
+    <div class="msg" id="cjMsg"></div>
+  </div>
+
+  <div class="card">
+    <h2>Your Shopify stores</h2>
+    <p>Create a free Shopify store first, then connect it here. Only stores you connect can be published to.</p>
+    <div id="shops"></div>
+    <input id="shopDomain" type="text" placeholder="your-store.myshopify.com" autocapitalize="none" autocorrect="off">
+    <button id="connect">Connect store</button>
+    <div class="msg" id="shopMsg"></div>
+  </div>
+
+  <a class="btn green" href="/dashboard">Open dashboard</a>
+  <a class="btn green" href="/">Open store builder</a>
+  <a class="btn green" href="/orders">View orders</a>
+  <button class="plain" id="logout">Log out</button>
+</div>
+<script>
+  const $ = (id) => document.getElementById(id);
+
+  async function load() {
+    const r = await fetch("/api/me");
+    if (r.status === 401) { location.href = "/login?next=/account"; return; }
+    const me = await r.json();
+    $("who").textContent = me.email;
+    // With a shared CJ account there is nothing for the seller to enter.
+    $("cjCard").hidden = me.keyMode === "shared";
+    $("cjStatus").innerHTML = me.hasCjKey
+      ? '<span class="ok">CJ key saved.</span> Paste a new one below to replace it.'
+      : 'Orders from your stores are sent to <b>your own</b> CJ Dropshipping account, using this key. <span class="bad">No key saved yet.</span>';
+    $("shops").innerHTML = me.shops.length
+      ? "<ul>" + me.shops.map((s) => `<li>${s.replace(/</g, "&lt;")}</li>`).join("") + "</ul>"
+      : '<p class="bad">No stores connected yet.</p>';
+    const c = new URLSearchParams(location.search).get("connected");
+    if (c) { $("shopMsg").innerHTML = '<span class="ok">Connected ' + c.replace(/</g, "&lt;") + '.</span>'; }
+  }
+
+  $("saveKey").onclick = async () => {
+    $("saveKey").disabled = true; $("cjMsg").textContent = "Checking with CJ…"; $("cjMsg").className = "msg";
+    try {
+      const r = await fetch("/api/account/cj-key", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ apiKey: $("cjKey").value }),
+      });
+      const d = await r.json();
+      if (!r.ok || d.error) throw new Error(d.error || "Could not save.");
+      $("cjKey").value = "";
+      $("cjMsg").textContent = "Saved."; $("cjMsg").className = "msg ok";
+      load();
+    } catch (e) { $("cjMsg").textContent = e.message; $("cjMsg").className = "msg bad"; }
+    finally { $("saveKey").disabled = false; }
+  };
+
+  $("connect").onclick = () => {
+    let d = $("shopDomain").value.trim().toLowerCase().replace(/^https?:\/\//, "").replace(/\/.*$/, "");
+    if (!/^[a-z0-9][a-z0-9-]*\.myshopify\.com$/.test(d)) {
+      $("shopMsg").textContent = "Enter the store's .myshopify.com address."; $("shopMsg").className = "msg bad"; return;
+    }
+    location.href = "/auth?shop=" + encodeURIComponent(d);
+  };
+
+  $("logout").onclick = async () => { await fetch("/api/logout", { method: "POST" }); location.href = "/login"; };
+  load();
+</script>
+</body>
+</html>
