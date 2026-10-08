@@ -67,6 +67,19 @@ async function cjKeyForShop(shop) {
   return process.env.CJ_API_KEY || null;
 }
 
+// The store's display name (e.g. "My Cool Store") from Shopify.
+async function fetchShopName(shop, token) {
+  try {
+    const r = await fetch(`https://${shop}/admin/api/2024-10/shop.json`, {
+      headers: { 'X-Shopify-Access-Token': token },
+    });
+    const j = await r.json();
+    return j.shop?.name || null;
+  } catch (e) {
+    return null;
+  }
+}
+
 // ---------- cookies & sessions ----------
 function parseCookies(req) {
   const out = {};
@@ -251,6 +264,14 @@ function registerAuthRoutes(app) {
 
   app.get('/api/me', requireUser, async (req, res) => {
     const shops = await db.getShopsForUser(req.user.id);
+    // Stores connected before names were saved get their name filled in now.
+    for (const s of shops) {
+      if (!s.name) {
+        const token = await db.getShopToken(s.shop);
+        const name = token ? await fetchShopName(s.shop, token) : null;
+        if (name) { s.name = name; await db.setShopName(s.shop, name); }
+      }
+    }
     res.json({
       email: req.user.email,
       keyMode: keyMode(),
@@ -264,6 +285,7 @@ module.exports = {
   encrypt,
   decrypt,
   cjKeyForShop,
+  fetchShopName,
   keyMode,
   isAdmin,
   attachUser,

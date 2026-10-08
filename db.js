@@ -54,6 +54,7 @@ async function initDb() {
     cj_order_id TEXT,
     auto_order_results JSONB
   )`);
+  await q('ALTER TABLE sb_shops ADD COLUMN IF NOT EXISTS name TEXT');
   await q('CREATE INDEX IF NOT EXISTS sb_orders_shop_idx ON sb_orders (shop)');
   await q('CREATE INDEX IF NOT EXISTS sb_product_map_shop_idx ON sb_product_map (shop)');
   console.log('Database tables ready.');
@@ -107,15 +108,20 @@ async function setUserCjKey(userId, encrypted) {
 }
 
 // ---------- shops ----------
-async function setShopToken(shop, token, userId) {
+async function setShopToken(shop, token, userId, name) {
   await q(
-    `INSERT INTO sb_shops (shop, access_token, user_id)
-     VALUES ($1, $2, $3)
+    `INSERT INTO sb_shops (shop, access_token, user_id, name)
+     VALUES ($1, $2, $3, $4)
      ON CONFLICT (shop) DO UPDATE
        SET access_token = EXCLUDED.access_token,
-           user_id = COALESCE(EXCLUDED.user_id, sb_shops.user_id)`,
-    [shop, token, userId || null]
+           user_id = COALESCE(EXCLUDED.user_id, sb_shops.user_id),
+           name = COALESCE(EXCLUDED.name, sb_shops.name)`,
+    [shop, token, userId || null, name || null]
   );
+}
+
+async function setShopName(shop, name) {
+  await q('UPDATE sb_shops SET name = $2 WHERE shop = $1', [shop, name]);
 }
 
 async function getShopToken(shop) {
@@ -129,8 +135,8 @@ async function getShopTokenForUser(shop, userId) {
 }
 
 async function getShopsForUser(userId) {
-  const r = await q('SELECT shop FROM sb_shops WHERE user_id = $1 ORDER BY created_at', [userId]);
-  return r.rows.map((x) => x.shop);
+  const r = await q('SELECT shop, name FROM sb_shops WHERE user_id = $1 ORDER BY created_at', [userId]);
+  return r.rows.map((x) => ({ shop: x.shop, name: x.name }));
 }
 
 async function getShopOwnerKey(shop) {
@@ -255,6 +261,7 @@ module.exports = {
   getUserCjKeyEnc,
   setUserCjKey,
   setShopToken,
+  setShopName,
   getShopToken,
   getShopTokenForUser,
   getShopsForUser,

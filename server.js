@@ -26,6 +26,27 @@ app.use((req, res, next) => {
   if (req.path === '/webhooks/orders-create') return next();
   express.json()(req, res, next);
 });
+// People type their store as "ithon", "ithon.myshopify.com", a full URL, or an
+// admin.shopify.com/store/ithon link. All of them become "ithon.myshopify.com".
+function normalizeShop(input) {
+  let v = String(input || '').trim().toLowerCase();
+  if (!v) return v;
+  v = v.replace(/^https?:\/\//, '');
+  const admin = v.match(/^admin\.shopify\.com\/store\/([a-z0-9][a-z0-9-]*)/);
+  if (admin) return `${admin[1]}.myshopify.com`;
+  v = v.split(/[\/?#]/)[0];            // drop any path
+  if (!v.includes('.')) v = `${v}.myshopify.com`;
+  return v;
+}
+
+// Clean up the store name wherever it arrives (not on Shopify's own callback).
+app.use((req, res, next) => {
+  if (req.path !== '/auth/callback' && req.path !== '/webhooks/orders-create') {
+    if (typeof req.query?.shop === 'string') req.query.shop = normalizeShop(req.query.shop);
+    if (req.body && typeof req.body.shop === 'string') req.body.shop = normalizeShop(req.body.shop);
+  }
+  next();
+});
 app.use(auth.attachUser);   // who is logged in?
 app.use(auth.gatePages);    // builder / orders / account pages need a login
 app.use(express.static(path.join(__dirname, 'public')));
@@ -235,7 +256,8 @@ app.get('/auth/callback', async (req, res) => {
     }
 
     // The store now belongs to the user who started the connection.
-    await db.setShopToken(shop, data.access_token, pending.userId);
+    const shopName = await auth.fetchShopName(shop, data.access_token);
+    await db.setShopToken(shop, data.access_token, pending.userId, shopName);
     console.log('Connected shop:', shop, 'for user', pending.userId);
     res.redirect(`/account?connected=${encodeURIComponent(shop)}`);
   } catch (err) {
@@ -463,7 +485,7 @@ app.get('/api/dashboard', requireUser, async (req, res) => {
     const weekAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
     const money = {}; // currency -> { total, week }
     const counts = { total: 0, week: 0, sent: 0, fulfilled: 0, failed: 0, processing: 0 };
-    const perShop = Object.fromEntries(shops.map((s) => [s, { shop: s, orders: 0, products: 0, revenue: 0 }]));
+    const perShop = Object.fromEntries(shops.map((s) => [s.shop, { shop: s.shop, name: s.name || null, orders: 0, products: 0, revenue: 0 }]));
 
     for (const o of orders) {
       const st = orderStatus(o);
