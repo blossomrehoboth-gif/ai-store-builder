@@ -42,7 +42,7 @@
     <h2>Your Shopify stores</h2>
     <p>Create a free Shopify store first, then connect it here. Only stores you connect can be published to.</p>
     <div id="shops"></div>
-    <input id="shopDomain" type="text" placeholder="your-store.myshopify.com" autocapitalize="none" autocorrect="off">
+    <input id="shopDomain" type="text" placeholder="Your store name, e.g. ithon" autocapitalize="none" autocorrect="off">
     <button id="connect">Connect store</button>
     <div class="msg" id="shopMsg"></div>
   </div>
@@ -54,6 +54,7 @@
 </div>
 <script>
   const $ = (id) => document.getElementById(id);
+  const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 
   async function load() {
     const r = await fetch("/api/me");
@@ -66,7 +67,7 @@
       ? '<span class="ok">CJ key saved.</span> Paste a new one below to replace it.'
       : 'Orders from your stores are sent to <b>your own</b> CJ Dropshipping account, using this key. <span class="bad">No key saved yet.</span>';
     $("shops").innerHTML = me.shops.length
-      ? "<ul>" + me.shops.map((s) => `<li>${s.replace(/</g, "&lt;")}</li>`).join("") + "</ul>"
+      ? "<ul>" + me.shops.map((s) => `<li><b>${esc(s.name || s.shop)}</b>${s.name ? '<br><span style="color:#6b665c;font-size:13px">' + esc(s.shop) + '</span>' : ''}</li>`).join("") + "</ul>"
       : '<p class="bad">No stores connected yet.</p>';
     const c = new URLSearchParams(location.search).get("connected");
     if (c) { $("shopMsg").innerHTML = '<span class="ok">Connected ' + c.replace(/</g, "&lt;") + '.</span>'; }
@@ -88,11 +89,25 @@
     finally { $("saveKey").disabled = false; }
   };
 
+  // "ithon", "ithon.myshopify.com", or a pasted link all become ithon.myshopify.com
+  function normalizeShop(input) {
+    let v = String(input || "").trim().toLowerCase().replace(/^https?:\/\//, "");
+    const admin = v.match(/^admin\.shopify\.com\/store\/([a-z0-9][a-z0-9-]*)/);
+    if (admin) return admin[1] + ".myshopify.com";
+    v = v.split(/[\/?#]/)[0];
+    if (v && !v.includes(".")) v += ".myshopify.com";
+    return v;
+  }
+
+  $("shopDomain").addEventListener("input", () => { $("shopMsg").textContent = ""; });
+
   $("connect").onclick = () => {
-    let d = $("shopDomain").value.trim().toLowerCase().replace(/^https?:\/\//, "").replace(/\/.*$/, "");
+    const d = normalizeShop($("shopDomain").value);
     if (!/^[a-z0-9][a-z0-9-]*\.myshopify\.com$/.test(d)) {
-      $("shopMsg").textContent = "Enter the store's .myshopify.com address."; $("shopMsg").className = "msg bad"; return;
+      $("shopMsg").textContent = "Enter your store name, like ithon."; $("shopMsg").className = "msg bad"; return;
     }
+    $("shopDomain").value = d;
+    $("shopMsg").textContent = "Opening Shopify to connect " + d + "…"; $("shopMsg").className = "msg";
     location.href = "/auth?shop=" + encodeURIComponent(d);
   };
 

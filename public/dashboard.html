@@ -147,7 +147,8 @@
     // Stores
     $("shops").innerHTML = d.shops.length
       ? d.shops.map((s) =>
-          '<div class="row"><div class="top"><span class="name">' + esc(s.shop) + "</span></div>" +
+          '<div class="row"><div class="top"><span class="name">' + esc(s.name || s.shop) + "</span></div>" +
+          (s.name ? '<div class="muted">' + esc(s.shop) + "</div>" : "") +
           '<div class="muted">' + s.products + " product" + (s.products === 1 ? "" : "s") + " · " + s.orders + " order" + (s.orders === 1 ? "" : "s") + " · " + money(s.revenue, cur) + " sales</div>" +
           '<div class="muted"><a href="https://' + esc(s.shop) + '/admin" target="_blank" rel="noopener">Open Shopify admin</a></div></div>').join("")
       : '<div class="empty">No stores connected. <a href="/account">Connect one</a>.</div>';
