@@ -49,7 +49,7 @@ async function searchCjProducts(keyword) {
 
   return rawList.map((item) => {
     const pid = item.pid || item.id || null;
-    const image = item.productImage || item.productImageSet?.[0] || null;
+    const image = item.bigImage || item.productImage || item.productImageSet?.[0] || null;
     const priceRaw = item.sellPrice ?? item.price ?? null;
     const price = priceRaw != null ? parseFloat(priceRaw) : null;
     return {
@@ -80,7 +80,7 @@ async function getCjProductDetail(pid) {
     pid,
     vid: firstVariant.vid || firstVariant.variantId || p?.vid || null,
     name: p?.productNameEn || p?.productName || null,
-    image: p?.productImage || p?.productImageSet?.[0] || null,
+    image: p?.bigImage || p?.productImage || p?.productImageSet?.[0] || firstVariant.variantImage || null,
     price: firstVariant.variantSellPrice != null ? parseFloat(firstVariant.variantSellPrice) : (p?.sellPrice != null ? parseFloat(p.sellPrice) : null),
   };
 }
