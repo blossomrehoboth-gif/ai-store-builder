@@ -131,4 +131,72 @@ module.exports = function registerResearch(app) {
       res.status(500).json({ error: String(e.message || e) });
     }
   });
+
+  // Real profit for one product: actual CJ shipping + stock + fees.
+  // /api/research/profit?pid=...&sell=35&ad=8&country=US
+  app.get('/api/research/profit', async (req, res) => {
+    try {
+      const pid = String(req.query.pid || '');
+      if (!pid) return res.status(400).json({ error: 'Missing pid' });
+      const country = String(req.query.country || process.env.RESEARCH_COUNTRY || 'US').toUpperCase();
+      const t = await getToken();
+      const H = { 'CJ-Access-Token': t, 'Content-Type': 'application/json' };
+
+      // 1) variants -> first variant gives us a vid and a real cost
+      const pr = await fetch(`${CJ_BASE}/product/query?pid=${encodeURIComponent(pid)}`, { headers: H });
+      const pj = await pr.json();
+      const variants = pj.data?.variants || [];
+      const v = variants[0];
+      if (!v?.vid) return res.json({ ok: false, error: 'No variant found for this product.', cjMessage: pj.message });
+      const cost = num(v.variantSellPrice ?? v.sellPrice ?? pj.data?.sellPrice);
+
+      // 2) real shipping options to the destination
+      await new Promise((ok) => setTimeout(ok, 1100)); // CJ rate limit
+      const fr = await fetch(`${CJ_BASE}/logistic/freightCalculate`, {
+        method: 'POST', headers: H,
+        body: JSON.stringify({
+          startCountryCode: process.env.CJ_FROM_COUNTRY || 'CN',
+          endCountryCode: country,
+          products: [{ quantity: 1, vid: v.vid }],
+        }),
+      });
+      const fj = await fr.json();
+      const opts = (Array.isArray(fj.data) ? fj.data : [])
+        .map((o) => ({ name: o.logisticName, price: num(o.logisticPrice), days: o.logisticAging }))
+        .filter((o) => o.name)
+        .sort((a, b) => a.price - b.price);
+      const ship = opts[0] || null;
+
+      // 3) stock (best effort; CJ field names vary)
+      await new Promise((ok) => setTimeout(ok, 1100));
+      let stock = null;
+      try {
+        const sr = await fetch(`${CJ_BASE}/product/stock/queryByVid?vid=${encodeURIComponent(v.vid)}`, { headers: H });
+        const sj = await sr.json();
+        const rows = Array.isArray(sj.data) ? sj.data : [];
+        if (rows.length) {
+          stock = rows.reduce((n, x) => n + num(x.storageNum ?? x.totalInventoryNum ?? x.totalInventory), 0);
+        }
+      } catch (e) { /* leave unknown */ }
+
+      // 4) profit math
+      const sell = num(req.query.sell) || Math.round(cost * 2.8 * 100) / 100;
+      const ad = req.query.ad === undefined || req.query.ad === '' ? 8 : num(req.query.ad);
+      const shipping = ship ? ship.price : null;
+      const fee = Math.round((sell * 0.029 + 0.3) * 100) / 100; // typical card fee
+      const profit = shipping == null ? null
+        : Math.round((sell - cost - shipping - fee - ad) * 100) / 100;
+
+      res.json({
+        ok: true,
+        country, vid: v.vid, sell, cost, shipping, shippingMethod: ship?.name || null,
+        deliveryDays: ship?.days || null, paymentFee: fee, adCost: ad,
+        profit, margin: profit == null || !sell ? null : Math.round((profit / sell) * 100),
+        stock, inStock: stock == null ? null : stock > 0,
+        estimateNote: 'Shipping is a real CJ quote. Fee (2.9% + $0.30) and ad cost are estimates; refunds not included.',
+      });
+    } catch (e) {
+      res.status(500).json({ ok: false, error: String(e.message || e) });
+    }
+  });
 };
