@@ -31,11 +31,12 @@
 </style>
 </head>
 <body>
+  <p style="font-size:0.9rem;margin:0 0 16px;"><a href="/dashboard">Dashboard</a> · <a href="/">Store builder</a> · <a href="/account">Account</a></p>
   <h1>Orders</h1>
   <p class="sub">Real orders from your Shopify store. Each one is sent to CJ Dropshipping automatically as soon as it comes in — no action needed unless one shows a failure below, in which case you can retry it or contact the customer.</p>
 
   <button id="check-prices-btn" style="width:100%;padding:12px;border:none;border-radius:8px;background:#2E7D32;color:#fff;font-weight:600;margin-bottom:20px;">
-    Check AliExpress prices & stock
+    Check CJ prices & stock
   </button>
   <p id="check-status" style="font-size:0.85rem;color:#57503f;margin:-14px 0 20px;"></p>
 
@@ -59,7 +60,7 @@ async function load() {
     const div = document.createElement('div');
     div.className = 'order' + (o.fulfilled ? ' fulfilled' : '');
     const addr = o.address
-      ? [o.address.address1, o.address.address2, o.address.city, o.address.province, o.address.zip, o.address.country].filter(Boolean).join('\\n')
+      ? [o.address.address1, o.address.address2, o.address.city, o.address.province, o.address.zip, o.address.country].filter(Boolean).join('<br/>')
       : 'No shipping address on this order';
 
     const itemsHtml = (o.lineItems || []).map((li) => `
@@ -67,7 +68,7 @@ async function load() {
         ${li.aliImage ? `<img src="${li.aliImage}" />` : '<div style="width:44px;height:44px;background:#eee;border-radius:6px"></div>'}
         <div class="item-name">
           ${li.quantity} × ${li.title}
-          ${li.aliLink ? `<br/><a href="${li.aliLink}" target="_blank">View original AliExpress listing →</a>` : '<br/><span class="no-ali">No AliExpress link saved for this product</span>'}
+          ${li.aliLink ? `<br/><a href="${li.aliLink}" target="_blank">View CJ product →</a>` : '<br/><span class="no-ali">No CJ link saved for this product</span>'}
         </div>
       </div>
     `).join('');
@@ -79,7 +80,7 @@ async function load() {
       const allOk = o.autoOrderResults.every((r) => r.success);
       const lines = o.autoOrderResults
         .map((r) => `${r.title}: ${r.success ? (r.message || 'placed') : (r.message || r.reason)}`)
-        .join('\\n');
+        .join('<br/>');
       resultHtml = `<div class="autoorder-result ${allOk ? 'ok' : 'fail'}">${lines}</div>`;
       showRetry = !allOk;
     } else if (!o.fulfilled) {
@@ -133,7 +134,7 @@ document.getElementById('check-prices-btn').addEventListener('click', async () =
   const btn = document.getElementById('check-prices-btn');
   const status = document.getElementById('check-status');
   btn.disabled = true;
-  btn.textContent = 'Checking... (uses AliExpress API calls)';
+  btn.textContent = 'Checking CJ prices & stock...';
   status.textContent = '';
   try {
     const res = await fetch('/api/check-prices', { method: 'POST' });
@@ -145,7 +146,7 @@ document.getElementById('check-prices-btn').addEventListener('click', async () =
     status.textContent = 'Something went wrong checking prices.';
   } finally {
     btn.disabled = false;
-    btn.textContent = 'Check AliExpress prices & stock';
+    btn.textContent = 'Check CJ prices & stock';
   }
 });
 </script>
