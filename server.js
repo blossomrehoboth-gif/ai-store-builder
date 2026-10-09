@@ -23,29 +23,8 @@ const { requireUser, requireCjKey } = auth;
 const app = express();
 app.set('trust proxy', 1); // behind Render's proxy: needed for HTTPS cookies and correct IPs
 app.use((req, res, next) => {
-  if (req.path === '/webhooks/orders-create') return next();
+  if (req.path.startsWith('/webhooks/')) return next(); // webhooks need the raw body for signature checks
   express.json()(req, res, next);
-});
-// People type their store as "ithon", "ithon.myshopify.com", a full URL, or an
-// admin.shopify.com/store/ithon link. All of them become "ithon.myshopify.com".
-function normalizeShop(input) {
-  let v = String(input || '').trim().toLowerCase();
-  if (!v) return v;
-  v = v.replace(/^https?:\/\//, '');
-  const admin = v.match(/^admin\.shopify\.com\/store\/([a-z0-9][a-z0-9-]*)/);
-  if (admin) return `${admin[1]}.myshopify.com`;
-  v = v.split(/[\/?#]/)[0];            // drop any path
-  if (!v.includes('.')) v = `${v}.myshopify.com`;
-  return v;
-}
-
-// Clean up the store name wherever it arrives (not on Shopify's own callback).
-app.use((req, res, next) => {
-  if (req.path !== '/auth/callback' && req.path !== '/webhooks/orders-create') {
-    if (typeof req.query?.shop === 'string') req.query.shop = normalizeShop(req.query.shop);
-    if (req.body && typeof req.body.shop === 'string') req.body.shop = normalizeShop(req.body.shop);
-  }
-  next();
 });
 app.use(auth.attachUser);   // who is logged in?
 app.use(auth.gatePages);    // builder / orders / account pages need a login
@@ -256,8 +235,7 @@ app.get('/auth/callback', async (req, res) => {
     }
 
     // The store now belongs to the user who started the connection.
-    const shopName = await auth.fetchShopName(shop, data.access_token);
-    await db.setShopToken(shop, data.access_token, pending.userId, shopName);
+    await db.setShopToken(shop, data.access_token, pending.userId);
     console.log('Connected shop:', shop, 'for user', pending.userId);
     res.redirect(`/account?connected=${encodeURIComponent(shop)}`);
   } catch (err) {
@@ -367,6 +345,47 @@ app.post('/webhooks/orders-create', express.raw({ type: 'application/json' }), a
     res.status(200).send('ok'); // still 200 so Shopify doesn't retry forever
   }
 });
+
+// ---------- Shopify privacy (GDPR) webhooks ----------
+// Shopify requires these three for every public app. Each one checks the
+// signature first and answers 401 if it is not really from Shopify.
+function privacyWebhook(handler) {
+  return [
+    express.raw({ type: 'application/json' }),
+    async (req, res) => {
+      try {
+        if (!validWebhookHmac(req.body, req.get('X-Shopify-Hmac-Sha256'))) {
+          return res.status(401).send('Invalid signature.');
+        }
+        const payload = JSON.parse(req.body.toString('utf8') || '{}');
+        await handler(payload);
+        res.status(200).send('ok');
+      } catch (err) {
+        console.error('Privacy webhook error:', err);
+        res.status(500).send('error');
+      }
+    },
+  ];
+}
+
+// A customer asked to see their data. Orders are the only place we keep it
+// (name, address, items), and the store owner can already see them in Shopify.
+app.post('/webhooks/customers-data-request', ...privacyWebhook(async (p) => {
+  console.log('Privacy: data request from', p.shop_domain, 'for customer', p.customer?.id);
+}));
+
+// A customer asked to be erased: blank their name and address on their orders.
+app.post('/webhooks/customers-redact', ...privacyWebhook(async (p) => {
+  await db.redactCustomerOrders(p.shop_domain, p.orders_to_redact);
+  console.log('Privacy: redacted customer', p.customer?.id, 'on', p.shop_domain);
+}));
+
+// A store uninstalled the app 48 hours ago: delete everything we hold for it.
+app.post('/webhooks/shop-redact', ...privacyWebhook(async (p) => {
+  await db.deleteShopData(p.shop_domain);
+  console.log('Privacy: deleted all data for', p.shop_domain);
+}));
+// ---------- end privacy webhooks ----------
 
 // ---------- Price & inventory monitoring ----------
 // Manual-trigger only (you tap a button). Checks CJ's current cost and stock
@@ -485,7 +504,7 @@ app.get('/api/dashboard', requireUser, async (req, res) => {
     const weekAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
     const money = {}; // currency -> { total, week }
     const counts = { total: 0, week: 0, sent: 0, fulfilled: 0, failed: 0, processing: 0 };
-    const perShop = Object.fromEntries(shops.map((s) => [s.shop, { shop: s.shop, name: s.name || null, orders: 0, products: 0, revenue: 0 }]));
+    const perShop = Object.fromEntries(shops.map((s) => [s, { shop: s, orders: 0, products: 0, revenue: 0 }]));
 
     for (const o of orders) {
       const st = orderStatus(o);

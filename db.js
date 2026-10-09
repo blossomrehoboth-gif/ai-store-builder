@@ -54,7 +54,6 @@ async function initDb() {
     cj_order_id TEXT,
     auto_order_results JSONB
   )`);
-  await q('ALTER TABLE sb_shops ADD COLUMN IF NOT EXISTS name TEXT');
   await q('CREATE INDEX IF NOT EXISTS sb_orders_shop_idx ON sb_orders (shop)');
   await q('CREATE INDEX IF NOT EXISTS sb_product_map_shop_idx ON sb_product_map (shop)');
   console.log('Database tables ready.');
@@ -108,20 +107,15 @@ async function setUserCjKey(userId, encrypted) {
 }
 
 // ---------- shops ----------
-async function setShopToken(shop, token, userId, name) {
+async function setShopToken(shop, token, userId) {
   await q(
-    `INSERT INTO sb_shops (shop, access_token, user_id, name)
-     VALUES ($1, $2, $3, $4)
+    `INSERT INTO sb_shops (shop, access_token, user_id)
+     VALUES ($1, $2, $3)
      ON CONFLICT (shop) DO UPDATE
        SET access_token = EXCLUDED.access_token,
-           user_id = COALESCE(EXCLUDED.user_id, sb_shops.user_id),
-           name = COALESCE(EXCLUDED.name, sb_shops.name)`,
-    [shop, token, userId || null, name || null]
+           user_id = COALESCE(EXCLUDED.user_id, sb_shops.user_id)`,
+    [shop, token, userId || null]
   );
-}
-
-async function setShopName(shop, name) {
-  await q('UPDATE sb_shops SET name = $2 WHERE shop = $1', [shop, name]);
 }
 
 async function getShopToken(shop) {
@@ -135,8 +129,8 @@ async function getShopTokenForUser(shop, userId) {
 }
 
 async function getShopsForUser(userId) {
-  const r = await q('SELECT shop, name FROM sb_shops WHERE user_id = $1 ORDER BY created_at', [userId]);
-  return r.rows.map((x) => ({ shop: x.shop, name: x.name }));
+  const r = await q('SELECT shop FROM sb_shops WHERE user_id = $1 ORDER BY created_at', [userId]);
+  return r.rows.map((x) => x.shop);
 }
 
 async function getShopOwnerKey(shop) {
@@ -252,6 +246,25 @@ async function updateOrder(orderId, fields) {
   await q(`UPDATE sb_orders SET ${sets.join(', ')} WHERE order_id = $1`, vals);
 }
 
+// ---------- privacy (GDPR) ----------
+// Blank the customer's name and address on the orders Shopify lists.
+async function redactCustomerOrders(shop, orderIds) {
+  const ids = (orderIds || []).map(String);
+  if (!ids.length) return;
+  await q(
+    `UPDATE sb_orders SET customer_name = 'Redacted', address = NULL
+     WHERE shop = $1 AND order_id = ANY($2::text[])`,
+    [shop, ids]
+  );
+}
+
+// Delete everything we hold for a store that uninstalled the app.
+async function deleteShopData(shop) {
+  await q('DELETE FROM sb_orders WHERE shop = $1', [shop]);
+  await q('DELETE FROM sb_product_map WHERE shop = $1', [shop]);
+  await q('DELETE FROM sb_shops WHERE shop = $1', [shop]);
+}
+
 module.exports = {
   initDb,
   upsertGoogleUser,
@@ -261,7 +274,6 @@ module.exports = {
   getUserCjKeyEnc,
   setUserCjKey,
   setShopToken,
-  setShopName,
   getShopToken,
   getShopTokenForUser,
   getShopsForUser,
@@ -274,4 +286,6 @@ module.exports = {
   getOrderById,
   orderBelongsToUser,
   updateOrder,
+  redactCustomerOrders,
+  deleteShopData,
 };
