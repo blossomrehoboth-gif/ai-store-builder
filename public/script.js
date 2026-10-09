@@ -117,28 +117,19 @@ async function generateStore() {
     let product = rawInput;
     const linkSource = linkText || rawInput;
     let itemId = null;
-    if (/aliexpress\./i.test(linkSource)) {
-      itemId = extractAliItemId(linkSource);
-      if (!itemId) {
-        // Short links / campaign pages: let the server follow them.
-        try {
-          const rr = await fetch(`/api/resolve-ali-link?url=${encodeURIComponent(linkSource)}`);
-          const rd = await rr.json();
-          if (rd.ok) itemId = rd.itemId;
-        } catch (e) {}
-      }
-    }
+    const cjMatch = String(linkSource).match(/cjdropshipping\.com\/.*?-p-([0-9a-fA-F-]{20,})\.html/i);
+    if (cjMatch) itemId = cjMatch[1];
     if (linkText && !itemId) {
-      throw new Error("Couldn't find a product in that AliExpress link. Open the product itself on AliExpress, tap Share, copy its link, and paste that instead.");
+      throw new Error("Couldn't find a CJ product in that link. Paste a CJ Dropshipping product link, or leave it blank and type the product name above.");
     }
     if (itemId) {
-      const itemRes = await fetch(`/api/aliexpress-item/${itemId}`);
+      const itemRes = await fetch(`/api/cj-item/${itemId}`);
       const itemData = await itemRes.json();
       if (!itemData.ok || !itemData.item) {
-        throw new Error("AliExpress did not return details for that product (it may not be available in the data source). Try a different AliExpress product link.");
+        throw new Error("CJ did not return details for that product. Try a different CJ product link.");
       }
       linkedItem = itemData.item;
-      product = (linkedItem.title || "AliExpress product").slice(0, 90);
+      product = (linkedItem.title || "CJ product").slice(0, 90);
     }
 
     const response = await fetch("/api/generate", {
@@ -163,6 +154,10 @@ async function generateStore() {
       first.aliItemId = linkedItem.itemId || null;
       first.aliImage = linkedItem.image || null;
       first.aliPrice = linkedItem.price != null ? linkedItem.price : null;
+      first.name = String(linkedItem.title || first.name || "").slice(0, 120);
+      first.cjPid = linkedItem.itemId || null;
+      first.cjImage = linkedItem.image || null;
+      first.cjCost = linkedItem.cost != null ? linkedItem.cost : null;
       data.products = [first];
       if (storeNameInput.value.trim()) {
         data.storeName = storeNameInput.value.trim();
@@ -172,8 +167,8 @@ async function generateStore() {
       return;
     }
 
-    // Real CJdropshipping data: photo, price — per listing. If a
-    // listing is missing, that product slot just keeps the AI's
+    // Real AliExpress data: photo, price, rating, sold — per listing.
+    // If a listing is missing, that product slot just keeps the AI's
     // made-up description/price and shows a blank photo box.
     let aliItems = [];
     try {
@@ -181,7 +176,7 @@ async function generateStore() {
       const imgData = await imgRes.json();
       aliItems = imgData.items || [];
     } catch (e) {
-      console.warn("CJ product search failed:", e);
+      console.warn("CJ search failed:", e);
     }
 
     const heroImages = aliItems.map((it) => it.image).filter(Boolean).slice(0, 6);
@@ -214,6 +209,10 @@ async function generateStore() {
         p.aliItemId = real.itemId;
         p.aliImage = real.image || null;
         p.aliPrice = real.price != null ? real.price : null;
+        p.name = String(real.title || p.name || "").slice(0, 120);
+        p.cjPid = real.itemId;
+        p.cjImage = real.image || null;
+        p.cjCost = real.cost != null ? real.cost : null;
       }
     });
 
@@ -224,7 +223,7 @@ async function generateStore() {
     data.sourceNiche = product;
     await showTemplatePreview(data, perProduct);
   } catch (err) {
-    errorMsg.textContent = /AliExpress/.test(err.message || "")
+    errorMsg.textContent = /CJ/.test(err.message || "")
       ? err.message
       : "Couldn't build the store from that input. Try rephrasing the product or niche and generate again.";
     errorMsg.hidden = false;
