@@ -598,6 +598,7 @@ app.post('/api/orders/:orderId/fulfilled', requireUser, async (req, res) => {
 });
 // ---------- end order fulfillment ----------
 require('./cj')(app); // CJ Dropshipping: product search/lookup, balance, SKU tools, manual retry route
+require('./research')(app); // CJ product research (winners finder)
 
 // ---------- Publish generated concept to Shopify ----------
 // Uses the REST Admin API to mark a product published — this avoids the
