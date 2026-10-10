@@ -40,6 +40,11 @@
   </button>
   <p id="check-status" style="font-size:0.85rem;color:#57503f;margin:-14px 0 20px;"></p>
 
+  <button id="track-btn" style="width:100%;padding:12px;border:none;border-radius:8px;background:#8B6B2F;color:#fff;font-weight:600;margin-bottom:20px;">
+    Refresh tracking from CJ
+  </button>
+  <p id="track-status" style="font-size:0.85rem;color:#57503f;margin:-14px 0 20px;"></p>
+
   <div id="list"></div>
   <div id="empty" class="empty" hidden>No orders yet.</div>
 
@@ -87,6 +92,14 @@ async function load() {
       resultHtml = `<div class="autoorder-result">Sending to CJ...</div>`;
     }
 
+    let trackHtml = '';
+    if (o.cjStatus || o.trackingNumber) {
+      const parts = [];
+      if (o.cjStatus) parts.push('CJ status: ' + o.cjStatus);
+      if (o.trackingNumber) parts.push('Tracking: ' + o.trackingNumber + (o.carrier ? ' (' + o.carrier + ')' : ''));
+      trackHtml = `<div class="autoorder-result">${parts.join('<br/>')}</div>`;
+    }
+
     div.innerHTML = `
       <div class="order-top">
         <span class="order-num">Order ${o.orderNumber}</span>
@@ -96,6 +109,7 @@ async function load() {
       <div class="address">${addr}</div>
       ${itemsHtml}
       ${resultHtml}
+      ${trackHtml}
       ${showRetry ? `<button class="retry-btn" data-id="${o.orderId}">Retry sending to CJ</button>` : ''}
       <button class="fulfill-btn" data-id="${o.orderId}" ${o.fulfilled ? 'disabled' : ''}>
         ${o.fulfilled ? 'Marked fulfilled' : 'Mark as fulfilled'}
@@ -147,6 +161,28 @@ document.getElementById('check-prices-btn').addEventListener('click', async () =
   } finally {
     btn.disabled = false;
     btn.textContent = 'Check CJ prices & stock';
+  }
+});
+
+document.getElementById('track-btn').addEventListener('click', async () => {
+  const btn = document.getElementById('track-btn');
+  const status = document.getElementById('track-status');
+  btn.disabled = true;
+  btn.textContent = 'Checking CJ...';
+  status.textContent = '';
+  try {
+    const res = await fetch('/api/orders/refresh-tracking', { method: 'POST' });
+    const data = await res.json();
+    const errors = (data.results || []).filter((r) => r.error);
+    status.textContent = errors.length
+      ? 'CJ is busy right now (' + errors[0].error + '). Wait a few minutes and try again.'
+      : 'Checked ' + (data.checked || 0) + ' order(s).';
+    load();
+  } catch (e) {
+    status.textContent = 'Something went wrong checking tracking.';
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Refresh tracking from CJ';
   }
 });
 </script>
