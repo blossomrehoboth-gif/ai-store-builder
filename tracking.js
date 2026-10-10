@@ -4,9 +4,9 @@ module.exports = function registerTracking(app, auth, db) {
   const { requireUser, requireCjKey } = auth;
   const cjApi = require('./cj').cj;
 
-  // POST /api/orders/refresh-tracking
+  // GET or POST /api/orders/refresh-tracking  (GET lets you test it by opening the address in your browser)
   // Looks at every order of yours that was sent to CJ and saves its status and tracking number.
-  app.post('/api/orders/refresh-tracking', requireUser, requireCjKey, async (req, res) => {
+  const refresh = async (req, res) => {
     try {
       const orders = await db.getOrders(req.user.id);
       const sent = orders.filter((o) => o.cjOrderId && !o.fulfilled).slice(0, 15);
@@ -36,5 +36,7 @@ module.exports = function registerTracking(app, auth, db) {
     } catch (e) {
       res.status(500).json({ error: String(e.message || e) });
     }
-  });
+  };
+  app.get('/api/orders/refresh-tracking', requireUser, requireCjKey, refresh);
+  app.post('/api/orders/refresh-tracking', requireUser, requireCjKey, refresh);
 };
