@@ -17,6 +17,7 @@ module.exports = function registerTracking(app, auth, db) {
             req.cjKey,
             `/shopping/order/getOrderDetail?orderId=${encodeURIComponent(o.cjOrderId)}`
           );
+          if (req.query.raw) { out.push({ orderId: o.orderId, cjOrderId: o.cjOrderId, raw: j }); continue; }
           const d = j?.data || {};
           const tracking = d.trackNumber || d.trackingNumber || null;
           const carrier = d.logisticName || d.logistic || null;
