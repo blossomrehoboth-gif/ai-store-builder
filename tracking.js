@@ -13,12 +13,19 @@ module.exports = function registerTracking(app, auth, db) {
       const out = [];
       for (const o of sent) {
         try {
-          const j = await cjApi(
-            req.cjKey,
-            `/shopping/order/getOrderDetail?orderId=${encodeURIComponent(o.cjOrderId)}`
-          );
+          const path = `/shopping/order/getOrderDetail?orderId=${encodeURIComponent(o.cjOrderId)}`;
+          let j = await cjApi(req.cjKey, path);
+          if (j && j.success === false && String(j.code) === '1600200') {
+            // CJ said "too many requests" - wait a bit and try once more
+            await new Promise((ok) => setTimeout(ok, 3000));
+            j = await cjApi(req.cjKey, path);
+          }
           if (req.query.raw) { out.push({ orderId: o.orderId, cjOrderId: o.cjOrderId, raw: j }); continue; }
-          const d = j?.data || {};
+          if (!j || !j.data) {
+            out.push({ orderId: o.orderId, orderNumber: o.orderNumber, error: 'CJ did not return order data: ' + (j && j.message ? j.message : 'no message') });
+            continue;
+          }
+          const d = j.data;
           const tracking = d.trackNumber || d.trackingNumber || null;
           const carrier = d.logisticName || d.logistic || null;
           const status = d.orderStatus || d.status || null;
