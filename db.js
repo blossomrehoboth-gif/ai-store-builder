@@ -54,6 +54,9 @@ async function initDb() {
     cj_order_id TEXT,
     auto_order_results JSONB
   )`);
+  await q('ALTER TABLE sb_orders ADD COLUMN IF NOT EXISTS tracking_number TEXT');
+  await q('ALTER TABLE sb_orders ADD COLUMN IF NOT EXISTS carrier TEXT');
+  await q('ALTER TABLE sb_orders ADD COLUMN IF NOT EXISTS cj_status TEXT');
   await q('CREATE INDEX IF NOT EXISTS sb_orders_shop_idx ON sb_orders (shop)');
   await q('CREATE INDEX IF NOT EXISTS sb_product_map_shop_idx ON sb_product_map (shop)');
   console.log('Database tables ready.');
@@ -184,6 +187,9 @@ function rowToOrder(r) {
     totalPrice: r.total_price != null ? Number(r.total_price) : null,
     currency: r.currency || null,
     cjOrderId: r.cj_order_id || null,
+    trackingNumber: r.tracking_number || null,
+    carrier: r.carrier || null,
+    cjStatus: r.cj_status || null,
     autoOrderResults: r.auto_order_results || undefined,
   };
 }
@@ -241,6 +247,9 @@ async function updateOrder(orderId, fields) {
   const vals = [String(orderId)];
   if ('fulfilled' in fields) { vals.push(!!fields.fulfilled); sets.push(`fulfilled = $${vals.length}`); }
   if ('cjOrderId' in fields) { vals.push(fields.cjOrderId != null ? String(fields.cjOrderId) : null); sets.push(`cj_order_id = $${vals.length}`); }
+  if ('trackingNumber' in fields) { vals.push(fields.trackingNumber != null ? String(fields.trackingNumber) : null); sets.push(`tracking_number = $${vals.length}`); }
+  if ('carrier' in fields) { vals.push(fields.carrier != null ? String(fields.carrier) : null); sets.push(`carrier = $${vals.length}`); }
+  if ('cjStatus' in fields) { vals.push(fields.cjStatus != null ? String(fields.cjStatus) : null); sets.push(`cj_status = $${vals.length}`); }
   if ('autoOrderResults' in fields) { vals.push(JSON.stringify(fields.autoOrderResults)); sets.push(`auto_order_results = $${vals.length}::jsonb`); }
   if (!sets.length) return;
   await q(`UPDATE sb_orders SET ${sets.join(', ')} WHERE order_id = $1`, vals);
