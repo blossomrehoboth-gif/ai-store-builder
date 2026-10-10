@@ -617,6 +617,12 @@ app.post('/api/orders/:orderId/fulfilled', requireUser, async (req, res) => {
 require('./cj')(app); // CJ Dropshipping: product search/lookup, balance, SKU tools, manual retry route
 require('./research')(app); // CJ product research (winners finder)
 
+// Sends one test email so you can confirm alerts work. Open /api/test-email while logged in.
+app.get('/api/test-email', requireUser, async (req, res) => {
+  const ok = await require('./mailer').sendAlert('Test alert from AI Store Builder', 'If you can read this, email alerts are working.');
+  res.json({ sent: ok });
+});
+
 // ---------- Publish generated concept to Shopify ----------
 // Uses the REST Admin API to mark a product published — this avoids the
 // GraphQL `publications` query, which regular (non-channel) custom apps
