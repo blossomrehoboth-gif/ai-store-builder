@@ -464,6 +464,23 @@ app.post('/api/check-prices', requireUser, requireCjKey, async (req, res) => {
       }
     }
 
+    // Email me about anything that needs attention (price changed / out of stock).
+    try {
+      const problems = results.filter((r) => r.ok && (r.changed || r.inStock === false));
+      if (problems.length) {
+        const lines = problems.map((r) => {
+          const parts = [];
+          if (r.changed) parts.push(`supplier price $${Number(r.oldAliPrice).toFixed(2)} -> $${Number(r.newAliPrice).toFixed(2)} (your price now $${Number(r.newShopifyPrice).toFixed(2)})`);
+          if (r.inStock === false) parts.push('OUT OF STOCK at CJ');
+          return `- ${r.title}: ${parts.join('; ')}`;
+        });
+        require('./mailer').sendAlert(
+          `Store alert: ${problems.length} product${problems.length > 1 ? 's' : ''} need attention`,
+          lines.join('\n')
+        );
+      }
+    } catch (e) { console.error('Alert build failed:', e); }
+
     res.json({ results });
   } catch (err) {
     console.error(err);
