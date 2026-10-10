@@ -1,27 +1,35 @@
-// mailer.js - sends alert emails through Gmail (Nodemailer).
-// Needs two Render environment variables: GMAIL_USER and GMAIL_APP_PASSWORD.
-// Optional: ALERT_EMAIL (where alerts go; defaults to GMAIL_USER).
-// Safe by design: if anything is missing or fails, it logs and returns
-// false. It never crashes the app.
+// mailer.js - sends alert emails through Resend over HTTPS.
+// (Render's free plan blocks Gmail/SMTP, but normal HTTPS works fine.)
+// Render environment variables:
+//   RESEND_API_KEY  - your key from resend.com
+//   ALERT_EMAIL     - the email address you signed up to Resend with
+// Safe by design: on any problem it logs and returns false. It never crashes the app.
 async function sendAlert(subject, text) {
   try {
-    const user = process.env.GMAIL_USER;
-    const pass = process.env.GMAIL_APP_PASSWORD;
-    if (!user || !pass) {
-      console.error('Alert email skipped: GMAIL_USER / GMAIL_APP_PASSWORD not set.');
+    const key = process.env.RESEND_API_KEY;
+    const to = process.env.ALERT_EMAIL;
+    if (!key || !to) {
+      console.error('Alert email skipped: RESEND_API_KEY / ALERT_EMAIL not set.');
       return false;
     }
-    const nodemailer = require('nodemailer'); // loaded lazily so a missing package can't crash startup
-    const transport = nodemailer.createTransport({
-      service: 'gmail',
-      auth: { user, pass: pass.replace(/\s+/g, '') },
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 15000); // never hang the page
+    const r = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        from: 'AI Store Builder <onboarding@resend.dev>',
+        to: [to],
+        subject,
+        text,
+      }),
+      signal: ctrl.signal,
     });
-    await transport.sendMail({
-      from: `AI Store Builder <${user}>`,
-      to: process.env.ALERT_EMAIL || user,
-      subject,
-      text,
-    });
+    clearTimeout(timer);
+    if (!r.ok) {
+      console.error('Alert email failed:', r.status, await r.text());
+      return false;
+    }
     return true;
   } catch (e) {
     console.error('Alert email failed:', e.message || e);
