@@ -5,60 +5,118 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Seller dashboard</title>
 <style>
+  :root {
+    --bg: #EFF6F4;
+    --card: #FFFFFF;
+    --ink: #10231F;
+    --muted: #5A716B;
+    --line: #DCE8E4;
+    --bar: #0D3D38;
+    --accent: #0F9D8A; --accent-dark: #0A7A6B; --lime: #B8F26B;
+    --ok: #0B7A55; --ok-bg: #DDF4EA;
+    --bad: #B42318; --bad-bg: #FDE8E7;
+    --blue: #1F5FBF; --blue-bg: #E3EEFF;
+    --warn: #6B4A00; --warn-bg: #FFF3D6; --warn-line: #EBD58F;
+  }
   * { box-sizing: border-box; }
-  body { margin: 0; font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; background: #f6f1e8; color: #2a2a2a; padding: 16px; }
-  .wrap { max-width: 640px; margin: 0 auto; }
-  header { display: flex; justify-content: space-between; align-items: baseline; margin: 4px 0 14px; }
-  h1 { margin: 0; font-size: 26px; }
-  .who { color: #6b665c; font-size: 13px; }
-  nav { display: flex; gap: 8px; margin-bottom: 16px; }
-  nav a { flex: 1; text-align: center; padding: 11px 6px; font-size: 14px; font-weight: 600; color: #fff; background: #8b6a2f; border-radius: 10px; text-decoration: none; }
-  nav a.alt { background: #fff; color: #5a554a; border: 1px solid #cfc7b5; }
-  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 16px; }
-  .stat { background: #fff; border: 1px solid #e6dfd0; border-radius: 14px; padding: 14px; }
-  .stat .n { font-size: 24px; font-weight: 700; }
-  .stat .l { font-size: 13px; color: #6b665c; margin-top: 2px; }
-  .stat.warn { border-color: #e3b3ae; background: #fdf3f2; }
-  .stat.warn .n { color: #b3261e; }
-  .card { background: #fff; border: 1px solid #e6dfd0; border-radius: 16px; padding: 16px; margin-bottom: 16px; }
-  .card h2 { margin: 0 0 10px; font-size: 18px; }
-  .banner { background: #fff6e0; border: 1px solid #ecd9a0; border-radius: 12px; padding: 12px 14px; margin-bottom: 12px; font-size: 14px; line-height: 1.4; }
-  .banner a { color: #8b6a2f; font-weight: 600; }
-  .row { padding: 12px 0; border-top: 1px solid #efe9db; }
+  body { margin: 0; font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--ink); line-height: 1.45; padding: 0 0 56px; -webkit-text-size-adjust: 100%; }
+
+  /* top app bar */
+  header {
+    position: sticky; top: 0; z-index: 10; background: var(--bar); color: #fff;
+    display: flex; align-items: center; gap: 12px; padding: 10px 14px; margin: 0;
+  }
+  h1 { margin: 0; flex: 1; font-size: 20px; font-weight: 800; letter-spacing: -.01em; }
+  .who { color: #A8CFC7; font-size: 12px; max-width: 42%; word-break: break-all; text-align: right; }
+  .menu-btn { width: 46px; height: 46px; padding: 0; flex: none; display: grid; place-items: center; background: rgba(255,255,255,.12); color: #fff; border: 1px solid rgba(255,255,255,.25); border-radius: 12px; }
+  .menu-btn:active { background: rgba(255,255,255,.25); }
+
+  .wrap { max-width: 640px; margin: 0 auto; padding: 18px 16px 0; }
+
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 18px; }
+  .stat { background: var(--card); border: 1px solid var(--line); border-top: 4px solid var(--accent); border-radius: 12px; padding: 14px; }
+  .stat .n { font-size: 26px; font-weight: 800; line-height: 1.1; letter-spacing: -.02em; }
+  .stat .l { font-size: 13px; color: var(--muted); margin-top: 4px; }
+  .stat.warn { border-top-color: var(--bad); background: var(--bad-bg); }
+  .stat.warn .n { color: var(--bad); }
+
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 16px; margin-bottom: 18px; }
+  .card h2 { margin: 0 0 12px; font-size: 18px; font-weight: 800; display: flex; align-items: center; gap: 8px; }
+  .card h2::before { content: ""; width: 6px; height: 20px; border-radius: 3px; background: var(--accent); }
+  .banner { background: var(--warn-bg); color: var(--warn); border: 1px solid var(--warn-line); border-radius: 12px; padding: 12px 14px; margin-bottom: 16px; font-size: 14px; line-height: 1.45; }
+  .banner a { color: var(--accent-dark); font-weight: 700; }
+
+  .row { padding: 14px 0; border-top: 1px solid var(--line); }
   .row:first-of-type { border-top: 0; padding-top: 0; }
   .top { display: flex; justify-content: space-between; gap: 8px; align-items: center; }
-  .name { font-weight: 600; }
-  .muted { color: #6b665c; font-size: 13px; }
-  .pill { font-size: 12px; font-weight: 700; padding: 3px 9px; border-radius: 99px; white-space: nowrap; }
-  .pill.fulfilled { background: #e3f1e4; color: #1f6b25; }
-  .pill.sent { background: #e6eefb; color: #2456a8; }
-  .pill.failed { background: #fbe4e2; color: #b3261e; }
-  .pill.processing { background: #f1ecdd; color: #6b5a22; }
-  .pill.ok { background: #e3f1e4; color: #1f6b25; }
-  .items { font-size: 14px; margin-top: 4px; }
-  .err { color: #b3261e; font-size: 13px; margin-top: 4px; }
-  button { padding: 10px 14px; font-size: 14px; font-weight: 600; color: #fff; background: #8b6a2f; border: 0; border-radius: 9px; cursor: pointer; }
-  button.full { width: 100%; padding: 13px; font-size: 15px; }
-  button.small { margin-top: 8px; }
+  .name { font-weight: 700; }
+  .muted { color: var(--muted); font-size: 13px; }
+  .muted a { color: var(--accent-dark); font-weight: 600; }
+  .pill { font-size: 12px; font-weight: 700; padding: 4px 10px; border-radius: 8px; white-space: nowrap; }
+  .pill.fulfilled { background: var(--ok-bg); color: var(--ok); }
+  .pill.sent { background: var(--blue-bg); color: var(--blue); }
+  .pill.failed { background: var(--bad-bg); color: var(--bad); }
+  .pill.processing { background: #EAF1EF; color: var(--muted); }
+  .pill.ok { background: var(--ok-bg); color: var(--ok); }
+  .items { font-size: 14px; margin-top: 6px; }
+  .err { color: var(--bad); font-size: 13px; margin-top: 6px; }
+
+  button { padding: 11px 16px; font: inherit; font-size: 14px; font-weight: 700; color: #fff; background: var(--accent); border: 0; border-radius: 10px; cursor: pointer; min-height: 44px; }
+  button:active { background: var(--accent-dark); }
+  button.full { width: 100%; padding: 14px; font-size: 16px; min-height: 52px; border-radius: 12px; }
+  button.small { margin-top: 10px; }
   button:disabled { opacity: .6; }
+  button:focus-visible, .banner a:focus-visible, nav a:focus-visible { outline: 3px solid var(--lime); outline-offset: 2px; }
+
   .prod { display: flex; gap: 12px; align-items: center; }
-  .prod img { width: 52px; height: 52px; object-fit: cover; border-radius: 8px; background: #eee; flex: none; }
-  .empty { color: #6b665c; font-size: 14px; }
-  .msg { margin-top: 10px; font-size: 14px; }
+  .prod img { width: 56px; height: 56px; object-fit: cover; border-radius: 10px; background: #E5EFEC; flex: none; }
+  .empty { color: var(--muted); font-size: 14px; }
+  .empty a { color: var(--accent-dark); font-weight: 600; }
+  .msg { margin-top: 10px; font-size: 14px; color: var(--muted); }
+
+  /* slide-out menu */
+  .overlay { position: fixed; inset: 0; background: rgba(8,28,25,.55); opacity: 0; pointer-events: none; transition: opacity .25s; z-index: 20; }
+  .overlay.open { opacity: 1; pointer-events: auto; }
+  nav#drawer {
+    position: fixed; top: 0; left: 0; bottom: 0; width: min(300px, 84vw); z-index: 30;
+    display: flex; flex-direction: column; gap: 6px; padding: 16px 14px; margin: 0;
+    background: var(--bar); box-shadow: 8px 0 30px rgba(0,0,0,.35);
+    transform: translateX(-105%); transition: transform .28s ease; overflow-y: auto;
+  }
+  nav#drawer.open { transform: translateX(0); }
+  .drawer-head { display: flex; justify-content: space-between; align-items: center; padding: 4px 6px 14px; margin-bottom: 8px; border-bottom: 1px solid rgba(255,255,255,.15); font-size: 18px; color: #fff; }
+  .close-btn { width: 44px; height: 44px; padding: 0; font-size: 30px; line-height: 1; background: rgba(255,255,255,.12); color: #fff; border-radius: 12px; }
+  nav#drawer a, nav#drawer a.alt { display: block; padding: 15px 16px; font-size: 16px; font-weight: 700; color: #D6EAE5; background: transparent; border: 0; border-radius: 12px; text-decoration: none; min-height: 52px; text-align: left; }
+  nav#drawer a:first-of-type { background: var(--lime); color: #0D2A1F; }
+  nav#drawer a:active { background: rgba(255,255,255,.18); color: #fff; }
+
+  @media (min-width: 700px) {
+    header { padding: 12px 28px; }
+    h1 { font-size: 22px; }
+    .wrap { max-width: 920px; padding: 28px 28px 0; }
+    .grid { grid-template-columns: repeat(3, 1fr); gap: 12px; }
+    .card { padding: 22px; }
+  }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
 </style>
 </head>
 <body>
-<div class="wrap">
-  <header>
-    <h1>Dashboard</h1>
-    <span class="who" id="who"></span>
-  </header>
-  <nav>
-    <a href="/">Build a store</a>
+<header>
+  <button class="menu-btn" id="menuBtn" aria-label="Open menu" aria-expanded="false" aria-controls="drawer">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+  </button>
+  <h1>Dashboard</h1>
+  <span class="who" id="who"></span>
+</header>
+<div class="overlay" id="overlay"></div>
+<nav id="drawer" aria-label="Main menu">
+  <div class="drawer-head"><b>Menu</b><button class="close-btn" id="closeBtn" aria-label="Close menu">&times;</button></div>
+  <a href="/">Build a store</a>
     <a href="/research.html" class="alt">Winners</a>
     <a href="/orders" class="alt">Orders</a>
     <a href="/account" class="alt">Account</a>
-  </nav>
+</nav>
+<div class="wrap">
 
   <div id="setup"></div>
 
@@ -183,6 +241,21 @@
       $("check").disabled = false;
     }
   };
+
+  // Slide-out menu
+  (function () {
+    const btn = $("menuBtn"), drawer = $("drawer"), overlay = $("overlay");
+    function setOpen(open) {
+      drawer.classList.toggle("open", open);
+      overlay.classList.toggle("open", open);
+      btn.setAttribute("aria-expanded", open ? "true" : "false");
+      if (open) $("closeBtn").focus(); else btn.focus();
+    }
+    btn.onclick = () => setOpen(true);
+    $("closeBtn").onclick = () => setOpen(false);
+    overlay.onclick = () => setOpen(false);
+    document.addEventListener("keydown", (e) => { if (e.key === "Escape" && drawer.classList.contains("open")) setOpen(false); });
+  })();
 
   load();
 </script>
