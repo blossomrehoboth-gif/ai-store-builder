@@ -283,12 +283,18 @@ async function ensureOrderWebhook(shop, token) {
 // pretending to be Shopify.
 function validWebhookHmac(rawBody, hmacHeader) {
   if (!hmacHeader) return false;
-  const digest = crypto.createHmac('sha256', SHOPIFY_API_SECRET).update(rawBody).digest('base64');
-  try {
-    return crypto.timingSafeEqual(Buffer.from(digest), Buffer.from(hmacHeader));
-  } catch (e) {
-    return false;
+  // Stores connected through the OLD app sign their alerts with the old app's secret,
+  // stores on the new app use the new one. Accept either, so both keep working.
+  const secrets = [process.env.SHOPIFY_API_SECRET, process.env.SHOPIFY_API_SECRET_LEGACY].filter(Boolean);
+  for (const secret of secrets) {
+    const digest = crypto.createHmac('sha256', secret).update(rawBody).digest('base64');
+    try {
+      if (crypto.timingSafeEqual(Buffer.from(digest), Buffer.from(hmacHeader))) return true;
+    } catch (e) {
+      // lengths differ: not a match, try the next secret
+    }
   }
+  return false;
 }
 
 // Shopify posts here the moment a customer completes a real order.
@@ -464,23 +470,6 @@ app.post('/api/check-prices', requireUser, requireCjKey, async (req, res) => {
       }
     }
 
-    // Email me about anything that needs attention (price changed / out of stock).
-    try {
-      const problems = results.filter((r) => r.ok && (r.changed || r.inStock === false));
-      if (problems.length) {
-        const lines = problems.map((r) => {
-          const parts = [];
-          if (r.changed) parts.push(`supplier price $${Number(r.oldAliPrice).toFixed(2)} -> $${Number(r.newAliPrice).toFixed(2)} (your price now $${Number(r.newShopifyPrice).toFixed(2)})`);
-          if (r.inStock === false) parts.push('OUT OF STOCK at CJ');
-          return `- ${r.title}: ${parts.join('; ')}`;
-        });
-        require('./mailer').sendAlert(
-          `Store alert: ${problems.length} product${problems.length > 1 ? 's' : ''} need attention`,
-          lines.join('\n')
-        );
-      }
-    } catch (e) { console.error('Alert build failed:', e); }
-
     res.json({ results });
   } catch (err) {
     console.error(err);
@@ -615,14 +604,6 @@ app.post('/api/orders/:orderId/fulfilled', requireUser, async (req, res) => {
 });
 // ---------- end order fulfillment ----------
 require('./cj')(app); // CJ Dropshipping: product search/lookup, balance, SKU tools, manual retry route
-require('./research')(app); // CJ product research (winners finder)
-require('./tracking')(app, auth, db); // CJ order status + tracking numbers
-
-// Sends one test email so you can confirm alerts work. Open /api/test-email while logged in.
-app.get('/api/test-email', requireUser, async (req, res) => {
-  const ok = await require('./mailer').sendAlert('Test alert from AI Store Builder', 'If you can read this, email alerts are working.');
-  res.json({ sent: ok });
-});
 
 // ---------- Publish generated concept to Shopify ----------
 // Uses the REST Admin API to mark a product published — this avoids the
