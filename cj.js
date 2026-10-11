@@ -236,7 +236,7 @@ module.exports = function registerCj(app) {
     try {
       const q = String(req.query.q || '').trim();
       if (!q) return res.json({ items: [] });
-      const list = await cj(req.cjKey, `/product/list?pageNum=1&pageSize=8&productNameEn=${encodeURIComponent(q)}`);
+      const list = await cj(req.cjKey, `/product/list?pageNum=1&pageSize=20&productNameEn=${encodeURIComponent(q)}`);
       const items = (list.data?.list || [])
         .map((p) => {
           const cost = firstNumber(p.sellPrice);
