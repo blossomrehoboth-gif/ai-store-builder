@@ -1,190 +1,274 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Orders — AI Store Builder</title>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Orders</title>
 <style>
-  body { font-family: -apple-system, sans-serif; background: #f7f3ea; margin: 0; padding: 16px; color: #2b2b2b; }
-  h1 { font-size: 1.3rem; margin: 0 0 4px; }
-  p.sub { color: #6b6355; margin: 0 0 20px; font-size: 0.9rem; }
-  .order { background: #fff; border: 1px solid #e3dbc9; border-radius: 10px; padding: 14px; margin-bottom: 14px; }
-  .order.fulfilled { opacity: 0.55; }
-  .order-top { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 8px; }
-  .order-num { font-weight: 700; }
-  .order-date { font-size: 0.8rem; color: #8a8072; }
-  .customer { font-size: 0.9rem; margin-bottom: 6px; }
-  .address { font-size: 0.85rem; color: #57503f; background: #f7f3ea; padding: 8px; border-radius: 6px; margin-bottom: 10px; white-space: pre-line; }
-  .item { display: flex; gap: 10px; align-items: center; padding: 6px 0; border-top: 1px solid #efe8d8; }
-  .item img { width: 44px; height: 44px; object-fit: cover; border-radius: 6px; background: #eee; }
-  .item-name { font-size: 0.88rem; flex: 1; }
-  .item a { display: inline-block; margin-top: 4px; font-size: 0.8rem; color: #8C6A30; font-weight: 600; text-decoration: none; }
-  .no-ali { font-size: 0.8rem; color: #b23b3b; }
-  button.fulfill-btn { margin-top: 10px; width: 100%; padding: 10px; border: none; border-radius: 8px; background: #8C6A30; color: #fff; font-weight: 600; }
-  button.fulfill-btn:disabled { background: #cfc6b2; }
-  button.retry-btn { margin-top: 8px; width: 100%; padding: 10px; border: none; border-radius: 8px; background: #2A5DB0; color: #fff; font-weight: 600; }
-  button.retry-btn:disabled { background: #b9c8e6; }
-  .autoorder-result { font-size: 0.8rem; margin-top: 6px; padding: 8px; border-radius: 6px; white-space: pre-line; }
-  .autoorder-result.ok { background: #e6f2e6; color: #1e5c1e; }
-  .autoorder-result.fail { background: #fbe9e7; color: #a6392e; }
-  .empty { text-align: center; color: #8a8072; margin-top: 60px; }
+  :root{
+    --bg:#FFFFFF;--soft:#F5F3FF;--ink:#1B1530;--muted:#6E6788;--line:#E8E4F5;
+    --violet:#6D3FF2;--violet-dark:#5629D1;
+    --ok:#0E9F6E;--ok-bg:#E3F8EF;
+    --warn-bg:#FFF3D6;--warn:#7A5200;
+    --bad:#B42318;--bad-bg:#FDE8E6;
+    --info:#3B5BDB;--info-bg:#E7ECFF;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--ink);line-height:1.45;padding-bottom:110px;-webkit-text-size-adjust:100%}
+  .top{display:flex;justify-content:space-between;align-items:center;padding:14px 18px;border-bottom:1px solid var(--line);position:sticky;top:0;background:rgba(255,255,255,.96);z-index:5}
+  .top .logo{font-weight:800;font-size:17px;letter-spacing:-.02em;display:none}
+  .top nav{display:flex;gap:4px;overflow-x:auto}
+  .top nav a{color:var(--muted);text-decoration:none;font-weight:600;font-size:14px;padding:8px 10px;border-radius:8px;white-space:nowrap}
+  .top nav a.on{background:var(--soft);color:var(--violet-dark)}
+  .page{max-width:760px;margin:0 auto;padding:22px 18px}
+  h1{font-size:30px;font-weight:800;letter-spacing:-.03em}
+  .sub{color:var(--muted);font-size:15px;margin:6px 0 20px}
+  .alert{background:var(--warn-bg);color:var(--warn);border-radius:12px;padding:12px 14px;font-size:14px;margin-bottom:18px;white-space:pre-line}
+  .alert.good{background:var(--ok-bg);color:var(--ok)}
+  .seg{display:grid;grid-template-columns:repeat(4,1fr);background:var(--soft);border-radius:12px;padding:4px;margin-bottom:18px}
+  .seg button{font:inherit;font-size:14px;font-weight:700;border:0;background:transparent;color:var(--muted);padding:10px 4px;border-radius:9px;cursor:pointer;min-height:44px}
+  .seg button.on{background:#fff;color:var(--ink);box-shadow:0 1px 3px rgba(27,21,48,.15)}
+  .seg button:focus-visible,.fab:focus-visible,.ghost:focus-visible{outline:3px solid #B9A4FF;outline-offset:2px}
+  .seg em{font-style:normal;color:var(--violet);margin-left:4px}
+  .row{border:1px solid var(--line);border-radius:16px;margin-bottom:12px;overflow:hidden}
+  .row.done{opacity:.6}
+  .row-head{display:grid;grid-template-columns:44px 1fr auto;gap:12px;align-items:center;padding:14px 16px}
+  .avatar{width:44px;height:44px;border-radius:50%;background:var(--violet);color:#fff;display:grid;place-items:center;font-weight:800;font-size:15px}
+  .who{font-weight:700}
+  .meta{font-size:13px;color:var(--muted)}
+  .badge{font-size:12px;font-weight:700;padding:5px 10px;border-radius:999px;background:var(--ok-bg);color:var(--ok);white-space:nowrap}
+  .badge.shipped{background:var(--info-bg);color:var(--info)}
+  .badge.failed{background:var(--bad-bg);color:var(--bad)}
+  .badge.wait{background:var(--warn-bg);color:var(--warn)}
+  .row-body{background:var(--soft);padding:14px 16px;display:grid;gap:14px}
+  .prod{display:flex;gap:12px;align-items:center;margin-bottom:10px}
+  .prod:last-child{margin-bottom:0}
+  .thumb{width:56px;height:56px;border-radius:12px;flex:none;background:linear-gradient(135deg,#D8CCFF,#B49CFF);object-fit:cover}
+  .prod p{font-size:15px;font-weight:600}
+  .prod a{font-size:14px;color:var(--violet-dark);font-weight:700;text-decoration:none}
+  .kv{display:grid;gap:10px}
+  .kv div{display:flex;justify-content:space-between;gap:14px;font-size:14px}
+  .kv dt{color:var(--muted);flex:none}
+  .kv dd{text-align:right;word-break:break-word}
+  .kv .mono{font-family:ui-monospace,Menlo,monospace;font-size:13px;word-break:break-all}
+  .fail-msg{background:var(--bad-bg);color:var(--bad);border-radius:10px;padding:10px 12px;font-size:13px;white-space:pre-line}
+  .actions{padding:0 16px 16px;background:var(--soft);display:grid;gap:8px}
+  .ghost{font:inherit;font-weight:700;font-size:15px;min-height:46px;border-radius:12px;background:#fff;border:1px solid var(--line);color:var(--ink);cursor:pointer}
+  .ghost.primary{background:var(--violet);border-color:var(--violet);color:#fff}
+  .ghost:disabled{opacity:.55}
+  .empty{text-align:center;color:var(--muted);margin-top:50px}
+  .dock{position:fixed;left:0;right:0;bottom:0;padding:12px 16px calc(12px + env(safe-area-inset-bottom));background:linear-gradient(to top,#fff 70%,rgba(255,255,255,0));display:flex;gap:10px;justify-content:center}
+  .fab{flex:1;max-width:340px;font:inherit;font-weight:800;font-size:16px;min-height:52px;border:0;border-radius:14px;background:var(--violet);color:#fff;cursor:pointer;box-shadow:0 8px 20px rgba(109,63,242,.35)}
+  .fab:active{background:var(--violet-dark)}
+  .fab:disabled{opacity:.6}
+  .fab.alt{background:#fff;color:var(--violet-dark);border:1.5px solid var(--violet);box-shadow:none}
+  @media (min-width:700px){
+    .top .logo{display:block}
+    .top{padding:14px 32px}
+    .page{padding:36px 32px}
+    h1{font-size:38px}
+    .row-body{grid-template-columns:1.3fr 1fr;align-items:start}
+    .dock{position:static;background:none;padding:0;justify-content:flex-start;margin-bottom:22px}
+    .fab{flex:none;padding:0 24px;max-width:none}
+    body{padding-bottom:40px}
+  }
+  @media (min-width:1000px){.page{max-width:900px}}
+  @media (prefers-reduced-motion:reduce){*{transition:none!important}}
 </style>
 </head>
 <body>
-  <p style="font-size:0.9rem;margin:0 0 16px;"><a href="/dashboard">Dashboard</a> · <a href="/">Store builder</a> · <a href="/account">Account</a></p>
+
+<header class="top">
+  <span class="logo">Store Builder</span>
+  <nav aria-label="Main">
+    <a href="/dashboard">Dashboard</a>
+    <a href="/">Store builder</a>
+    <a href="/orders" class="on" aria-current="page">Orders</a>
+    <a href="/account">Account</a>
+  </nav>
+</header>
+
+<main class="page">
   <h1>Orders</h1>
-  <p class="sub">Real orders from your Shopify store. Each one is sent to CJ Dropshipping automatically as soon as it comes in — no action needed unless one shows a failure below, in which case you can retry it or contact the customer.</p>
+  <p class="sub">Orders reach CJ automatically. You only act on failures.</p>
 
-  <button id="check-prices-btn" style="width:100%;padding:12px;border:none;border-radius:8px;background:#2E7D32;color:#fff;font-weight:600;margin-bottom:20px;">
-    Check CJ prices & stock
-  </button>
-  <p id="check-status" style="font-size:0.85rem;color:#57503f;margin:-14px 0 20px;"></p>
+  <div id="note" class="alert" role="status" hidden></div>
 
-  <button id="track-btn" style="width:100%;padding:12px;border:none;border-radius:8px;background:#8B6B2F;color:#fff;font-weight:600;margin-bottom:20px;">
-    Refresh tracking from CJ
-  </button>
-  <p id="track-status" style="font-size:0.85rem;color:#57503f;margin:-14px 0 20px;"></p>
+  <div class="dock">
+    <button class="fab" id="check-prices-btn">Check prices and stock</button>
+    <button class="fab alt" id="tracking-btn">Refresh tracking</button>
+  </div>
+
+  <div class="seg" role="tablist" aria-label="Filter orders">
+    <button class="on" role="tab" aria-selected="true" data-f="all">All<em id="c-all">0</em></button>
+    <button role="tab" aria-selected="false" data-f="sent">Sent<em id="c-sent">0</em></button>
+    <button role="tab" aria-selected="false" data-f="shipped">Shipped<em id="c-shipped">0</em></button>
+    <button role="tab" aria-selected="false" data-f="failed">Failed<em id="c-failed">0</em></button>
+  </div>
 
   <div id="list"></div>
-  <div id="empty" class="empty" hidden>No orders yet.</div>
+  <div id="empty" class="empty" hidden>No orders in this view.</div>
+</main>
 
 <script>
-async function load() {
-  const res = await fetch('/api/orders');
-  const data = await res.json();
-  const list = document.getElementById('list');
-  const empty = document.getElementById('empty');
-  list.innerHTML = '';
-  if (!data.orders || data.orders.length === 0) {
-    empty.hidden = false;
-    return;
-  }
-  empty.hidden = true;
-
-  data.orders.forEach((o) => {
-    const div = document.createElement('div');
-    div.className = 'order' + (o.fulfilled ? ' fulfilled' : '');
-    const addr = o.address
-      ? [o.address.address1, o.address.address2, o.address.city, o.address.province, o.address.zip, o.address.country].filter(Boolean).join('<br/>')
-      : 'No shipping address on this order';
-
-    const itemsHtml = (o.lineItems || []).map((li) => `
-      <div class="item">
-        ${li.aliImage ? `<img src="${li.aliImage}" />` : '<div style="width:44px;height:44px;background:#eee;border-radius:6px"></div>'}
-        <div class="item-name">
-          ${li.quantity} × ${li.title}
-          ${li.aliLink ? `<br/><a href="${li.aliLink}" target="_blank">View CJ product →</a>` : '<br/><span class="no-ali">No CJ link saved for this product</span>'}
-        </div>
-      </div>
-    `).join('');
-
-    // Show what happened with the automatic CJ order for this order.
-    let resultHtml = '';
-    let showRetry = false;
-    if (o.autoOrderResults && o.autoOrderResults.length) {
-      const allOk = o.autoOrderResults.every((r) => r.success);
-      const lines = o.autoOrderResults
-        .map((r) => `${r.title}: ${r.success ? (r.message || 'placed') : (r.message || r.reason)}`)
-        .join('<br/>');
-      resultHtml = `<div class="autoorder-result ${allOk ? 'ok' : 'fail'}">${lines}</div>`;
-      showRetry = !allOk;
-    } else if (!o.fulfilled) {
-      resultHtml = `<div class="autoorder-result">Sending to CJ...</div>`;
-    }
-
-    let trackHtml = '';
-    if (o.cjStatus || o.trackingNumber) {
-      const parts = [];
-      if (o.cjStatus) parts.push('CJ status: ' + o.cjStatus);
-      if (o.trackingNumber) parts.push('Tracking: ' + o.trackingNumber + (o.carrier ? ' (' + o.carrier + ')' : ''));
-      trackHtml = `<div class="autoorder-result">${parts.join('<br/>')}</div>`;
-    }
-
-    div.innerHTML = `
-      <div class="order-top">
-        <span class="order-num">Order ${o.orderNumber}</span>
-        <span class="order-date">${new Date(o.receivedAt).toLocaleString()}</span>
-      </div>
-      <div class="customer">${o.customerName}</div>
-      <div class="address">${addr}</div>
-      ${itemsHtml}
-      ${resultHtml}
-      ${trackHtml}
-      ${showRetry ? `<button class="retry-btn" data-id="${o.orderId}">Retry sending to CJ</button>` : ''}
-      <button class="fulfill-btn" data-id="${o.orderId}" ${o.fulfilled ? 'disabled' : ''}>
-        ${o.fulfilled ? 'Marked fulfilled' : 'Mark as fulfilled'}
-      </button>
-    `;
-    list.appendChild(div);
-  });
-
-  list.querySelectorAll('.fulfill-btn').forEach((btn) => {
-    btn.addEventListener('click', async () => {
-      btn.disabled = true;
-      btn.textContent = 'Marking...';
-      await fetch(`/api/orders/${btn.dataset.id}/fulfilled`, { method: 'POST' });
-      load();
-    });
-  });
-
-  list.querySelectorAll('.retry-btn').forEach((btn) => {
-    btn.addEventListener('click', async () => {
-      btn.disabled = true;
-      btn.textContent = 'Retrying...';
-      try {
-        await fetch(`/api/orders/${btn.dataset.id}/auto-order`, { method: 'POST' });
-      } catch (e) {
-        // fall through — load() will still refresh and show current state
-      }
-      load();
-    });
+function esc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
   });
 }
+function safeUrl(u) { return /^https?:\/\//i.test(u || '') ? u : ''; }
 
-load();
-setInterval(load, 15000);
+let allOrders = [];
+let filter = 'all';
+
+function stateOf(o) {
+  if (o.trackingNumber) return 'shipped';
+  if (o.cjOrderId) return 'sent';
+  if ((o.autoOrderResults || []).some((r) => !r.success)) return 'failed';
+  return 'wait';
+}
+const LABEL = { shipped: 'Shipped', sent: 'Sent to CJ', failed: 'Failed', wait: 'Waiting' };
+
+function showNote(msg, good) {
+  const n = document.getElementById('note');
+  if (!msg) { n.hidden = true; return; }
+  n.textContent = msg;
+  n.className = 'alert' + (good ? ' good' : '');
+  n.hidden = false;
+}
+
+function initials(name) {
+  const p = String(name || '?').trim().split(/\s+/).slice(0, 2);
+  return p.map((w) => w[0] || '').join('').toUpperCase() || '?';
+}
+
+function render() {
+  const counts = { all: allOrders.length, sent: 0, shipped: 0, failed: 0 };
+  allOrders.forEach((o) => { const s = stateOf(o); if (counts[s] != null) counts[s]++; });
+  Object.keys(counts).forEach((k) => { document.getElementById('c-' + k).textContent = counts[k]; });
+
+  const shown = allOrders.filter((o) => filter === 'all' || stateOf(o) === filter);
+  const list = document.getElementById('list');
+  document.getElementById('empty').hidden = shown.length > 0;
+  list.innerHTML = shown.map((o) => {
+    const st = stateOf(o);
+    const a = o.address || {};
+    const addr = [a.address1, a.address2, a.city, a.province, a.zip, a.country].filter(Boolean).map(esc).join(', ') || 'No shipping address';
+    const items = (o.lineItems || []).map((li) => `
+      <div class="prod">
+        ${safeUrl(li.aliImage) ? `<img class="thumb" src="${esc(li.aliImage)}" alt="">` : '<div class="thumb" aria-hidden="true"></div>'}
+        <div>
+          <p>${esc(li.quantity)} × ${esc(li.title)}</p>
+          ${safeUrl(li.aliLink) ? `<a href="${esc(li.aliLink)}" target="_blank" rel="noopener">View CJ product</a>` : ''}
+        </div>
+      </div>`).join('');
+    const fails = (o.autoOrderResults || []).filter((r) => !r.success).map((r) => esc(r.message || r.reason || 'Unknown error')).join('\n');
+    const kv = [
+      `<div><dt>Ship to</dt><dd>${addr}</dd></div>`,
+      o.cjOrderId ? `<div><dt>CJ order</dt><dd class="mono">${esc(o.cjOrderId)}</dd></div>` : '',
+      o.cjStatus ? `<div><dt>CJ status</dt><dd>${esc(o.cjStatus)}</dd></div>` : '',
+      o.trackingNumber ? `<div><dt>Tracking</dt><dd class="mono">${esc(o.trackingNumber)}</dd></div>` : '',
+      o.carrier ? `<div><dt>Carrier</dt><dd>${esc(o.carrier)}</dd></div>` : '',
+    ].join('');
+    const canRetry = !o.fulfilled && !o.cjOrderId && (o.lineItems || []).some((li) => li.sku);
+    return `
+    <article class="row${o.fulfilled ? ' done' : ''}">
+      <div class="row-head">
+        <div class="avatar" aria-hidden="true">${esc(initials(o.customerName))}</div>
+        <div>
+          <div class="who">${esc(o.customerName)}</div>
+          <div class="meta">Order #${esc(o.orderNumber)} · ${esc(new Date(o.receivedAt).toLocaleString())}</div>
+        </div>
+        <span class="badge ${st}">${esc(o.fulfilled ? 'Fulfilled' : LABEL[st])}</span>
+      </div>
+      <div class="row-body">
+        <div>${items}</div>
+        <dl class="kv">${kv}</dl>
+      </div>
+      <div class="actions">
+        ${fails && !o.cjOrderId ? `<div class="fail-msg">${fails}</div>` : ''}
+        ${canRetry ? `<button class="ghost primary retry-btn" data-id="${esc(o.orderId)}">Retry sending to CJ</button>` : ''}
+        <button class="ghost fulfill-btn" data-id="${esc(o.orderId)}" ${o.fulfilled ? 'disabled' : ''}>${o.fulfilled ? 'Marked fulfilled' : 'Mark as fulfilled'}</button>
+      </div>
+    </article>`;
+  }).join('');
+}
+
+async function load() {
+  try {
+    const res = await fetch('/api/orders');
+    const data = await res.json();
+    allOrders = data.orders || [];
+    render();
+  } catch (e) {
+    showNote('Could not load orders. Pull down to refresh.');
+  }
+}
+
+document.querySelectorAll('.seg button').forEach((b) => {
+  b.addEventListener('click', () => {
+    filter = b.dataset.f;
+    document.querySelectorAll('.seg button').forEach((x) => {
+      x.classList.toggle('on', x === b);
+      x.setAttribute('aria-selected', x === b ? 'true' : 'false');
+    });
+    render();
+  });
+});
+
+document.getElementById('list').addEventListener('click', async (e) => {
+  const btn = e.target.closest('button');
+  if (!btn) return;
+  if (btn.classList.contains('fulfill-btn')) {
+    btn.disabled = true; btn.textContent = 'Marking...';
+    await fetch(`/api/orders/${btn.dataset.id}/fulfilled`, { method: 'POST' });
+    load();
+  } else if (btn.classList.contains('retry-btn')) {
+    btn.disabled = true; btn.textContent = 'Sending order to CJ...';
+    try { await fetch(`/api/orders/${btn.dataset.id}/auto-order`, { method: 'POST' }); } catch (err) {}
+    load();
+  }
+});
 
 document.getElementById('check-prices-btn').addEventListener('click', async () => {
   const btn = document.getElementById('check-prices-btn');
-  const status = document.getElementById('check-status');
-  btn.disabled = true;
-  btn.textContent = 'Checking CJ prices & stock...';
-  status.textContent = '';
+  btn.disabled = true; btn.textContent = 'Checking...';
+  showNote('');
   try {
     const res = await fetch('/api/check-prices', { method: 'POST' });
     const data = await res.json();
-    const changed = (data.results || []).filter((r) => r.changed);
-    const outOfStock = (data.results || []).filter((r) => r.inStock === false);
-    status.textContent = `Checked ${data.results?.length || 0} product(s). ${changed.length} price(s) updated. ${outOfStock.length} out of stock.`;
+    const r = data.results || [];
+    const changed = r.filter((x) => x.changed).length;
+    const out = r.filter((x) => x.inStock === false).length;
+    showNote(`Checked ${r.length} product(s). ${changed} price(s) updated. ${out} out of stock.` + ((changed || out) ? ' An email alert was sent.' : ''), true);
   } catch (e) {
-    status.textContent = 'Something went wrong checking prices.';
+    showNote('Something went wrong checking prices.');
   } finally {
-    btn.disabled = false;
-    btn.textContent = 'Check CJ prices & stock';
+    btn.disabled = false; btn.textContent = 'Check prices and stock';
   }
 });
 
-document.getElementById('track-btn').addEventListener('click', async () => {
-  const btn = document.getElementById('track-btn');
-  const status = document.getElementById('track-status');
-  btn.disabled = true;
-  btn.textContent = 'Checking CJ...';
-  status.textContent = '';
+document.getElementById('tracking-btn').addEventListener('click', async () => {
+  const btn = document.getElementById('tracking-btn');
+  btn.disabled = true; btn.textContent = 'Refreshing...';
+  showNote('');
   try {
     const res = await fetch('/api/orders/refresh-tracking', { method: 'POST' });
     const data = await res.json();
-    const errors = (data.results || []).filter((r) => r.error);
-    status.textContent = errors.length
-      ? 'CJ is busy right now (' + errors[0].error + '). Wait a few minutes and try again.'
-      : 'Checked ' + (data.checked || 0) + ' order(s).';
+    const errs = (data.results || []).filter((x) => x.error);
+    if (data.error) showNote('Could not refresh tracking: ' + data.error);
+    else if (errs.length) showNote(`CJ is busy right now (${errs[0].error}). Wait a few minutes and try again.`);
+    else showNote(`Checked ${data.checked || 0} order(s).`, true);
     load();
   } catch (e) {
-    status.textContent = 'Something went wrong checking tracking.';
+    showNote('Something went wrong refreshing tracking.');
   } finally {
-    btn.disabled = false;
-    btn.textContent = 'Refresh tracking from CJ';
+    btn.disabled = false; btn.textContent = 'Refresh tracking';
   }
 });
+
+load();
+setInterval(load, 15000);
 </script>
 </body>
 </html>
