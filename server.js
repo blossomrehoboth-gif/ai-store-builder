@@ -488,6 +488,24 @@ app.post('/api/check-prices', requireUser, requireCjKey, async (req, res) => {
   }
 });
 
+// ---------- Scheduled daily price check (all shops) ----------
+// Protected by a secret in the URL instead of a login, since this is
+// meant to be triggered by an outside scheduler, not a person in a
+// browser. Doesn't touch the manual /api/check-prices route above.
+app.get('/api/cron/daily-price-check', async (req, res) => {
+  if (!process.env.CRON_SECRET || req.query.secret !== process.env.CRON_SECRET) {
+    return res.status(401).json({ error: 'Invalid or missing secret.' });
+  }
+  try {
+    const summary = await require('./priceCheckJob').runPriceCheckForAllShops();
+    res.json({ ok: true, shopsChecked: summary.length, summary });
+  } catch (err) {
+    console.error('Daily price check failed:', err);
+    res.status(500).json({ error: 'Daily price check failed.' });
+  }
+});
+// ---------- end scheduled daily price check ----------
+
 app.get('/api/price-status', requireUser, async (req, res) => {
   const entries = await db.getAllProductMappings(req.user.id);
   // aliItemId / lastKnownAliPrice kept as aliases for the current orders.html.
