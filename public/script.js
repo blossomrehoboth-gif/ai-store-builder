@@ -628,7 +628,10 @@ publishBtn.addEventListener("click", async () => {
 
   publishBtn.disabled = true;
   publishLabel.textContent = "Publishing...";
-  publishStatus.textContent = "";
+  const count = (currentStore.products || []).length;
+  publishStatus.textContent = count > 3
+    ? `Publishing ${count} products. This takes about a minute, please keep this page open.`
+    : "";
 
   try {
     const response = await fetch("/api/publish", {
