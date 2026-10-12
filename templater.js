@@ -4,7 +4,7 @@ const path = require('path');
 // Most product cards a store page will show.
 const MAX_CARDS = 15;
 
-const TEMPLATES_DIR = path.join(__dirname, 'templates');
+const TEMPLATES_DIR = path.join(__dirname, 'public', 'themes');
 const templateFiles = fs.readdirSync(TEMPLATES_DIR).filter((f) => f.endsWith('.html'));
 
 function escapeHtml(str) {
@@ -56,55 +56,8 @@ function fillCard(cardHtml, p) {
 // (up to MAX_CARDS) the card markup is copied to make room for them all.
 // If there are fewer products than slots, the products are reused
 // cyclically rather than leaving fake ones showing.
-// Newer-style templates (currently just 36-nova.html) use plain
-// {{PLACEHOLDER}} tokens instead of matching specific CSS classes —
-// simpler to inject into, and supports any number of products via a
-// JSON array the page builds its own cards from in JS.
-function renderPlaceholderTemplate(file, html, storeName, tagline, accentColor, products) {
-  const safeName = escapeHtml(storeName || 'My Store');
-  const safeTagline = escapeHtml(tagline || '');
-  const safeColor = /^#[0-9A-Fa-f]{3,6}$/.test(accentColor || '') ? accentColor : '#2E3F94';
-  const safeHeadline = escapeHtml(tagline || storeName || 'Shop the collection');
-
-  // Build the hero art (2–3 image boxes) from real product photos only
-  // — never invented images. Falls back to a plain color box if a
-  // product has no photo.
-  const heroShots = (products || []).slice(0, 3);
-  const phClasses = ['', 'b', 'c'];
-  const heroArt = heroShots
-    .map((p, i) => {
-      const cls = `ph${phClasses[i] ? ' ' + phClasses[i] : ''}`;
-      return p.image
-        ? `<div class="${cls}"><img src="${p.image}" alt="${escapeHtml(p.name || '')}" loading="lazy"></div>`
-        : `<div class="${cls}"></div>`;
-    })
-    .join('\n');
-
-  const productsForJs = (products || []).map((p) => ({
-    name: p.name || '',
-    price: p.priceDisplay || '',
-    image: p.image || null,
-  }));
-
-  let out = html;
-  out = out.replace(/\{\{TITLE\}\}/g, safeName);
-  out = out.replace(/\{\{ACCENT\}\}/g, safeColor);
-  out = out.replace(/\{\{LOGO\}\}/g, safeName);
-  out = out.replace(/\{\{HEADLINE\}\}/g, safeHeadline);
-  out = out.replace(/\{\{TAGLINE\}\}/g, safeTagline);
-  out = out.replace(/\{\{HERO_ART\}\}/g, heroArt);
-  out = out.replace(/\{\{PRODUCTS_JSON\}\}/g, JSON.stringify(productsForJs));
-
-  return { html: out, templateFile: file };
-}
-
 function renderTemplate(storeName, tagline, accentColor, products, preferredFile) {
   const { file, html } = pickTemplate(preferredFile);
-
-  if (html.includes('{{PRODUCTS_JSON}}')) {
-    return renderPlaceholderTemplate(file, html, storeName, tagline, accentColor, products);
-  }
-
   let out = html;
 
   const safeName = escapeHtml(storeName || 'My Store');
