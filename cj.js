@@ -121,6 +121,22 @@ async function getCjStock(apiKey, vid) {
     return null;
   }
 }
+// One CJ product-list search. Asks for a big page; if CJ refuses that page size
+// it tries smaller ones, and it logs CJ's reason so problems show up in Render.
+let goodPageSize = 40; // remembers the biggest page size CJ has accepted
+async function searchCjList(apiKey, term) {
+  const sizes = [40, 20, 10].filter((s) => s <= goodPageSize);
+  for (const size of sizes) {
+    const json = await cj(apiKey, `/product/list?pageNum=1&pageSize=${size}&productNameEn=${encodeURIComponent(term)}`);
+    const list = json?.data?.list;
+    if (Array.isArray(list)) {
+      goodPageSize = size;
+      return list;
+    }
+    console.error(`CJ search "${term}" (pageSize ${size}) returned no list:`, json?.code, json?.message);
+  }
+  return [];
+}
 // ---------- end product data helpers ----------
 
 // Places a CJ order for one incoming order object (mutates it in place
@@ -231,7 +247,9 @@ module.exports = function registerCj(app) {
   });
 
   // Search CJ for products. Returns up to 15 (max 20) clean results:
-  //  - duplicates removed (same title or same photo)
+  //  - if the whole phrase finds too little, the most specific single words are
+  //    searched too (CJ often returns nothing for long phrases)
+  //  - duplicates removed (same product, same title or same photo)
   //  - items without a photo or a price removed
   //  - best matches for the search words first
   // Returns {items:[{itemId(pid), title, image, price(retail), cost}]}.
@@ -241,43 +259,58 @@ module.exports = function registerCj(app) {
       if (!q) return res.json({ items: [] });
       const want = Math.min(Math.max(parseInt(req.query.limit, 10) || 15, 1), 20);
 
-      // Ask for plenty, because duplicates and loose matches get thrown away below.
-      const list = await cj(req.cjKey, `/product/list?pageNum=1&pageSize=40&productNameEn=${encodeURIComponent(q)}`);
-
       const words = q.toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length >= 3);
       const seen = new Set();
       const scored = [];
-      for (const p of list.data?.list || []) {
-        const title = p.productNameEn || '';
-        const image = parseImages(p.productImage)[0] || null;
-        const cost = firstNumber(p.sellPrice);
-        if (!p.pid || !title || !image || cost == null) continue;
 
-        const titleKey = title.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim().slice(0, 50);
-        const imageKey = image.split('?')[0];
-        if (seen.has(titleKey) || seen.has(imageKey)) continue; // duplicate listing
-        seen.add(titleKey);
-        seen.add(imageKey);
+      const addList = (list) => {
+        for (const p of list) {
+          const title = p.productNameEn || '';
+          const image = parseImages(p.productImage)[0] || null;
+          const cost = firstNumber(p.sellPrice);
+          if (!p.pid || !title || !image || cost == null) continue;
 
-        // Share of the search words that appear in the title (1 = all of them).
-        const lower = title.toLowerCase();
-        const hits = words.filter((w) => lower.includes(w)).length;
-        const score = words.length ? hits / words.length : 1;
+          const pidKey = `pid:${p.pid}`;
+          const titleKey = title.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim().slice(0, 50);
+          const imageKey = image.split('?')[0];
+          if (seen.has(pidKey) || seen.has(titleKey) || seen.has(imageKey)) continue; // duplicate listing
+          seen.add(pidKey);
+          seen.add(titleKey);
+          seen.add(imageKey);
 
-        scored.push({
-          score,
-          item: {
-            itemId: p.pid,
-            title,
-            image,
-            cost,
-            price: retailPrice(cost),
-            originalPrice: null,
-            rating: null, // CJ doesn't provide ratings or sales counts
-            sold: null,
-          },
-        });
+          // Share of the search words that appear in the title (1 = all of them).
+          const lower = title.toLowerCase();
+          const hits = words.filter((w) => lower.includes(w)).length;
+          scored.push({
+            score: words.length ? hits / words.length : 1,
+            item: {
+              itemId: p.pid,
+              title,
+              image,
+              cost,
+              price: retailPrice(cost),
+              originalPrice: null,
+              rating: null, // CJ doesn't provide ratings or sales counts
+              sold: null,
+            },
+          });
+        }
+      };
+
+      // 1) the whole phrase
+      addList(await searchCjList(req.cjKey, q));
+
+      // 2) not enough? try the most specific single words (longest first)
+      if (scored.length < want) {
+        const singles = [...new Set(words)].sort((a, b) => b.length - a.length).slice(0, 3);
+        for (const w of singles) {
+          if (w === q.toLowerCase()) continue;
+          addList(await searchCjList(req.cjKey, w));
+          if (scored.length >= want * 2) break;
+        }
       }
+
+      console.log(`CJ search "${q}" -> ${scored.length} usable product(s)`);
       scored.sort((a, b) => b.score - a.score); // stable: ties keep CJ's order
       res.json({ items: scored.slice(0, want).map((s) => s.item) });
     } catch (e) {
