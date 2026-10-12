@@ -167,54 +167,45 @@ async function generateStore() {
       return;
     }
 
-    // Real AliExpress data: photo, price, rating, sold — per listing.
-    // If a listing is missing, that product slot just keeps the AI's
-    // made-up description/price and shows a blank photo box.
+    // Build the product list directly from real CJ listings — real
+    // titles, real prices, real photos — rather than Groq's 3 made-up
+    // products repeated to fill the grid. Groq is still used for the
+    // store name, tagline, brand story, feature checklist, FAQ, etc —
+    // just not individual product names/prices anymore.
     let aliItems = [];
     try {
       const imgRes = await fetch(`/api/cj-search?q=${encodeURIComponent(product)}`);
       const imgData = await imgRes.json();
-      aliItems = imgData.items || [];
+      aliItems = (imgData.items || []).filter((it) => it.title && it.image && it.price != null);
     } catch (e) {
       console.warn("CJ search failed:", e);
     }
 
+    if (aliItems.length === 0) {
+      throw new Error("CJ didn't return any usable products for that search. Try different, more specific words.");
+    }
+
+    data.products = aliItems.map((it) => ({
+      name: String(it.title).slice(0, 120),
+      description: "",
+      price: `$${it.price.toFixed(2)}`,
+      aliItemId: it.itemId,
+      aliImage: it.image,
+      aliPrice: it.price,
+      cjPid: it.itemId,
+      cjImage: it.image,
+      cjCost: it.cost != null ? it.cost : null,
+    }));
+
     const heroImages = aliItems.map((it) => it.image).filter(Boolean).slice(0, 6);
-    let perProduct = (data.products || []).map((_, i) => aliItems[i] || null);
-
-    // If a product's own listing has price/rating but no photo, borrow
-    // a photo from another real listing rather than leaving it blank.
-    // Never invents an image — only reuses a real one we already have.
-    const fallbackImagePool = aliItems.map((it) => it.image).filter(Boolean);
-    let fallbackIdx = 0;
-    perProduct = perProduct.map((item) => {
-      if (item && !item.image && fallbackImagePool.length > 0) {
-        const borrowedImage = fallbackImagePool[fallbackIdx % fallbackImagePool.length];
-        fallbackIdx += 1;
-        return { ...item, image: borrowedImage };
-      }
-      return item;
-    });
-
-    // Real price replaces the AI's made-up one wherever we have one —
-    // this is also what actually gets published to Shopify.
-    (data.products || []).forEach((p, i) => {
-      const real = perProduct[i];
-      if (real?.price != null) {
-        p.price = `$${real.price.toFixed(2)}`;
-      }
-      // Carried through to Shopify so a real order can be matched back
-      // to the exact AliExpress listing for fulfillment.
-      if (real?.itemId) {
-        p.aliItemId = real.itemId;
-        p.aliImage = real.image || null;
-        p.aliPrice = real.price != null ? real.price : null;
-        p.name = String(real.title || p.name || "").slice(0, 120);
-        p.cjPid = real.itemId;
-        p.cjImage = real.image || null;
-        p.cjCost = real.cost != null ? real.cost : null;
-      }
-    });
+    const perProduct = aliItems.map((it) => ({
+      itemId: it.itemId,
+      image: it.image,
+      price: it.price,
+      originalPrice: it.originalPrice,
+      rating: it.rating,
+      sold: it.sold,
+    }));
 
     if (storeNameInput.value.trim()) {
       data.storeName = storeNameInput.value.trim();
@@ -637,7 +628,10 @@ publishBtn.addEventListener("click", async () => {
 
   publishBtn.disabled = true;
   publishLabel.textContent = "Publishing...";
-  publishStatus.textContent = "";
+  const count = (currentStore.products || []).length;
+  publishStatus.textContent = count > 3
+    ? `Publishing ${count} products. This takes about a minute, please keep this page open.`
+    : "";
 
   try {
     const response = await fetch("/api/publish", {

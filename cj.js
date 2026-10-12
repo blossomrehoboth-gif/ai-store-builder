@@ -230,29 +230,56 @@ module.exports = function registerCj(app) {
     }
   });
 
-  // Search CJ for products (replaces /api/aliexpress-search).
+  // Search CJ for products. Returns up to 15 (max 20) clean results:
+  //  - duplicates removed (same title or same photo)
+  //  - items without a photo or a price removed
+  //  - best matches for the search words first
   // Returns {items:[{itemId(pid), title, image, price(retail), cost}]}.
   app.get('/api/cj-search', requireUser, requireCjKey, async (req, res) => {
     try {
       const q = String(req.query.q || '').trim();
       if (!q) return res.json({ items: [] });
-      const list = await cj(req.cjKey, `/product/list?pageNum=1&pageSize=8&productNameEn=${encodeURIComponent(q)}`);
-      const items = (list.data?.list || [])
-        .map((p) => {
-          const cost = firstNumber(p.sellPrice);
-          return {
+      const want = Math.min(Math.max(parseInt(req.query.limit, 10) || 15, 1), 20);
+
+      // Ask for plenty, because duplicates and loose matches get thrown away below.
+      const list = await cj(req.cjKey, `/product/list?pageNum=1&pageSize=40&productNameEn=${encodeURIComponent(q)}`);
+
+      const words = q.toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length >= 3);
+      const seen = new Set();
+      const scored = [];
+      for (const p of list.data?.list || []) {
+        const title = p.productNameEn || '';
+        const image = parseImages(p.productImage)[0] || null;
+        const cost = firstNumber(p.sellPrice);
+        if (!p.pid || !title || !image || cost == null) continue;
+
+        const titleKey = title.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim().slice(0, 50);
+        const imageKey = image.split('?')[0];
+        if (seen.has(titleKey) || seen.has(imageKey)) continue; // duplicate listing
+        seen.add(titleKey);
+        seen.add(imageKey);
+
+        // Share of the search words that appear in the title (1 = all of them).
+        const lower = title.toLowerCase();
+        const hits = words.filter((w) => lower.includes(w)).length;
+        const score = words.length ? hits / words.length : 1;
+
+        scored.push({
+          score,
+          item: {
             itemId: p.pid,
-            title: p.productNameEn || null,
-            image: parseImages(p.productImage)[0] || null,
+            title,
+            image,
             cost,
             price: retailPrice(cost),
             originalPrice: null,
             rating: null, // CJ doesn't provide ratings or sales counts
             sold: null,
-          };
-        })
-        .filter((it) => it.itemId);
-      res.json({ items });
+          },
+        });
+      }
+      scored.sort((a, b) => b.score - a.score); // stable: ties keep CJ's order
+      res.json({ items: scored.slice(0, want).map((s) => s.item) });
     } catch (e) {
       console.error('CJ search failed:', e);
       res.json({ items: [] });

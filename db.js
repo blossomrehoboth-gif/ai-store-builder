@@ -173,6 +173,20 @@ async function getAllProductMappings(userId) {
   return r.rows.map((x) => [x.shopify_product_id, x.data]);
 }
 
+// ---------- scheduled price checks (all shops) ----------
+// Used by the new daily cron route (server.js) + priceCheckJob.js.
+// Not used anywhere else — the manual "Check prices" button still uses
+// getAllProductMappings(userId) above, unchanged.
+async function getAllShops() {
+  const r = await q('SELECT shop FROM sb_shops ORDER BY created_at');
+  return r.rows.map((x) => x.shop);
+}
+
+async function getProductMappingsForShop(shop) {
+  const r = await q('SELECT shopify_product_id, data FROM sb_product_map WHERE shop = $1', [shop]);
+  return r.rows.map((x) => [x.shopify_product_id, x.data]);
+}
+
 // ---------- orders ----------
 function rowToOrder(r) {
   return {
@@ -290,6 +304,8 @@ module.exports = {
   setProductMapping,
   getProductMapping,
   getAllProductMappings,
+  getAllShops,
+  getProductMappingsForShop,
   insertOrder,
   getOrders,
   getOrderById,
