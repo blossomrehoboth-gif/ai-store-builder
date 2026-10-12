@@ -182,7 +182,19 @@ async function generateStore() {
     }
 
     if (aliItems.length === 0) {
-      throw new Error("CJ didn't return any usable products for that search. Try different, more specific words.");
+      // CJ is not answering (or found nothing). Still show the store design, using the
+      // AI's sample products, so the seller can see it. Publishing stays switched off.
+      data.products = (data.products || []).map((p) => ({ ...p, sample: true }));
+      if (storeNameInput.value.trim()) {
+        data.storeName = storeNameInput.value.trim();
+      }
+      data.sourceNiche = product;
+      data.sampleOnly = true;
+      await showTemplatePreview(data, data.products.map(() => null));
+      errorMsg.textContent =
+        "CJ is not answering right now, so this design shows sample products. You can publish once real CJ products load.";
+      errorMsg.hidden = false;
+      return;
     }
 
     data.products = aliItems.map((it) => ({
@@ -326,6 +338,12 @@ async function showTemplatePreview(store, perProduct) {
     store.__templateFile = result.templateFile;
     document.getElementById("template-preview").hidden = false;
     document.getElementById("publish-box").hidden = false;
+    if (store.sampleOnly) {
+      publishBtn.disabled = true;
+      publishStatus.textContent = "Sample preview only. These are placeholder products, so they can't be published yet.";
+    } else {
+      publishBtn.disabled = false;
+    }
     currentStore = store;
     postActions.hidden = false;
     saveDraft(store, [], perProduct);
@@ -619,6 +637,10 @@ publishBtn.addEventListener("click", async () => {
 
   if (!currentStore) {
     publishStatus.textContent = "Generate a store first.";
+    return;
+  }
+  if (currentStore.sampleOnly) {
+    publishStatus.textContent = "This is a sample preview. Publish once real CJ products load.";
     return;
   }
   if (!shop || !shop.endsWith(".myshopify.com")) {
