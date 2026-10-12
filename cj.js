@@ -2,26 +2,57 @@
 // user who owns the store / is logged in, never a shared one).
 const db = require('./db');
 const { requireUser, requireCjKey, cjKeyForShop, encrypt, keyMode, isAdmin } = require('./auth');
+const { loadToken, saveToken, clearToken } = require('./cjtoken');
 const CJ_BASE = 'https://developers.cjdropshipping.com/api2.0/v1';
 
-// CJ limits token requests (1 per 5 min per account), so cache one token per API key.
+// CJ limits logins (1 per 5 minutes per account), so a token is kept in memory AND
+// saved in the database (see cjtoken.js), so restarts and deploys reuse it.
 const tokenCache = new Map(); // apiKey -> { token, expires }
+const loginInFlight = new Map(); // apiKey -> promise (so two requests never log in at once)
+const TOKEN_LIFE_MS = 14 * 24 * 60 * 60 * 1000; // CJ tokens last 15 days
 
 async function getCjToken(apiKey) {
   if (!apiKey) throw new Error('No CJ API key available.');
   const cached = tokenCache.get(apiKey);
   if (cached && Date.now() < cached.expires) return cached.token;
-  const r = await fetch(`${CJ_BASE}/authentication/getAccessToken`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ apiKey }),
-  });
-  const json = await r.json();
-  if (!json.data?.accessToken) {
-    throw new Error(`CJ login failed: ${json.message || r.status}`);
-  }
-  tokenCache.set(apiKey, { token: json.data.accessToken, expires: Date.now() + 14 * 24 * 60 * 60 * 1000 }); // lasts 15 days
-  return json.data.accessToken;
+  if (loginInFlight.has(apiKey)) return loginInFlight.get(apiKey);
+
+  const p = (async () => {
+    try {
+      // 1) a token saved earlier (survives restarts and deploys)
+      const saved = await loadToken(apiKey);
+      if (saved) {
+        tokenCache.set(apiKey, { token: saved, expires: Date.now() + 60 * 60 * 1000 }); // re-check the saved copy hourly
+        return saved;
+      }
+      // 2) log in to CJ
+      const r = await fetch(`${CJ_BASE}/authentication/getAccessToken`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ apiKey }),
+      });
+      const json = await r.json().catch(() => ({}));
+      if (!json.data?.accessToken) {
+        console.error('CJ login refused:', r.status, json.code, json.message);
+        throw new Error(`CJ login failed: ${json.message || r.status}`);
+      }
+      const token = json.data.accessToken;
+      tokenCache.set(apiKey, { token, expires: Date.now() + TOKEN_LIFE_MS });
+      await saveToken(apiKey, token, Date.now() + TOKEN_LIFE_MS);
+      console.log('Logged in to CJ and saved the token.');
+      return token;
+    } finally {
+      loginInFlight.delete(apiKey);
+    }
+  })();
+  loginInFlight.set(apiKey, p);
+  return p;
+}
+
+// Forget a token CJ no longer accepts, so the next call logs in fresh.
+async function dropCjToken(apiKey) {
+  tokenCache.delete(apiKey);
+  await clearToken(apiKey);
 }
 
 // CJ allows ~1 request/second per key. All sellers may share one key, so every
@@ -43,10 +74,17 @@ async function cj(apiKey, path, method = 'GET', body, retried = false) {
     body: body ? JSON.stringify(body) : undefined,
   });
   const json = await r.json().catch(() => ({}));
-  // CJ allows about 1 request/second; wait and retry once if we hit the limit.
-  if (!retried && (r.status === 429 || json.code === 1600200)) {
-    await sleep(1500);
-    return cj(apiKey, path, method, body, true);
+  if (!retried) {
+    // CJ allows about 1 request/second; wait and retry once if we hit the limit.
+    if (r.status === 429 || json.code === 1600200) {
+      await sleep(1500);
+      return cj(apiKey, path, method, body, true);
+    }
+    // The saved token was rejected (expired or replaced): log in again once.
+    if (r.status === 401 || json.code === 1600001) {
+      await dropCjToken(apiKey);
+      return cj(apiKey, path, method, body, true);
+    }
   }
   return json;
 }
