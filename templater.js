@@ -1,6 +1,9 @@
 const fs = require('fs');
 const path = require('path');
 
+// Most product cards a store page will show.
+const MAX_CARDS = 15;
+
 const TEMPLATES_DIR = path.join(__dirname, 'templates');
 const templateFiles = fs.readdirSync(TEMPLATES_DIR).filter((f) => f.endsWith('.html'));
 
@@ -34,12 +37,74 @@ function listTemplateSummaries() {
   });
 }
 
+// Fills one product card (name, price, photo, add-to-cart data) with a product.
+function fillCard(cardHtml, p) {
+  let card = cardHtml;
+  card = card.replace(/(class="cn">)([^<]*)(<)/, (m, a, _o, c) => `${a}${escapeHtml(p.name)}${c}`);
+  card = card.replace(/(class="cp">)([^<]*)(<)/, (m, a, _o, c) => `${a}${escapeHtml(p.priceDisplay)}${c}`);
+  if (p.image) {
+    card = card.replace(/style="[^"]*"/, `style="background-image:url('${p.image}');background-size:cover;background-position:center"`);
+  }
+  card = card.replace(/data-n="[^"]*"/, `data-n="${escapeHtml(p.name)}"`);
+  card = card.replace(/data-p="[^"]*"/, `data-p="${p.priceNumber || ''}"`);
+  return card;
+}
+
 // Injects real store data into one of the 35 static templates. Never
-// invents prices/images — only uses what's passed in. If a template
-// has more product card slots than real products, the extra slots
-// reuse the products cyclically rather than left showing fake ones.
+// invents prices/images — only uses what's passed in. Templates only have
+// a few product card slots (often 4), so when there are more products
+// (up to MAX_CARDS) the card markup is copied to make room for them all.
+// If there are fewer products than slots, the products are reused
+// cyclically rather than leaving fake ones showing.
+// Newer-style templates (currently just 36-nova.html) use plain
+// {{PLACEHOLDER}} tokens instead of matching specific CSS classes —
+// simpler to inject into, and supports any number of products via a
+// JSON array the page builds its own cards from in JS.
+function renderPlaceholderTemplate(file, html, storeName, tagline, accentColor, products) {
+  const safeName = escapeHtml(storeName || 'My Store');
+  const safeTagline = escapeHtml(tagline || '');
+  const safeColor = /^#[0-9A-Fa-f]{3,6}$/.test(accentColor || '') ? accentColor : '#2E3F94';
+  const safeHeadline = escapeHtml(tagline || storeName || 'Shop the collection');
+
+  // Build the hero art (2–3 image boxes) from real product photos only
+  // — never invented images. Falls back to a plain color box if a
+  // product has no photo.
+  const heroShots = (products || []).slice(0, 3);
+  const phClasses = ['', 'b', 'c'];
+  const heroArt = heroShots
+    .map((p, i) => {
+      const cls = `ph${phClasses[i] ? ' ' + phClasses[i] : ''}`;
+      return p.image
+        ? `<div class="${cls}"><img src="${p.image}" alt="${escapeHtml(p.name || '')}" loading="lazy"></div>`
+        : `<div class="${cls}"></div>`;
+    })
+    .join('\n');
+
+  const productsForJs = (products || []).map((p) => ({
+    name: p.name || '',
+    price: p.priceDisplay || '',
+    image: p.image || null,
+  }));
+
+  let out = html;
+  out = out.replace(/\{\{TITLE\}\}/g, safeName);
+  out = out.replace(/\{\{ACCENT\}\}/g, safeColor);
+  out = out.replace(/\{\{LOGO\}\}/g, safeName);
+  out = out.replace(/\{\{HEADLINE\}\}/g, safeHeadline);
+  out = out.replace(/\{\{TAGLINE\}\}/g, safeTagline);
+  out = out.replace(/\{\{HERO_ART\}\}/g, heroArt);
+  out = out.replace(/\{\{PRODUCTS_JSON\}\}/g, JSON.stringify(productsForJs));
+
+  return { html: out, templateFile: file };
+}
+
 function renderTemplate(storeName, tagline, accentColor, products, preferredFile) {
   const { file, html } = pickTemplate(preferredFile);
+
+  if (html.includes('{{PRODUCTS_JSON}}')) {
+    return renderPlaceholderTemplate(file, html, storeName, tagline, accentColor, products);
+  }
+
   let out = html;
 
   const safeName = escapeHtml(storeName || 'My Store');
@@ -63,26 +128,29 @@ function renderTemplate(storeName, tagline, accentColor, products, preferredFile
 
   if (products && products.length > 0) {
     // Step 1: pull every product card OUT of the document into a
-    // placeholder token, processing its name/price/image as before.
-    // This stops the next step (hero/banner images) from re-touching
-    // or mis-cycling images that already belong to a specific card.
-    const extractedCards = [];
-    let cardIndex = 0;
+    // placeholder token. This stops the next step (hero/banner images)
+    // from re-touching or mis-cycling images that already belong to a
+    // specific card.
+    const slots = []; // the template's own card markup, in order
     out = out.replace(/<article class="card"[\s\S]*?<\/article>/g, (cardHtml) => {
-      const p = products[cardIndex % products.length];
-      cardIndex += 1;
-      let card = cardHtml;
-      card = card.replace(/(class="cn">)([^<]*)(<)/, (m, a, _o, c) => `${a}${escapeHtml(p.name)}${c}`);
-      card = card.replace(/(class="cp">)([^<]*)(<)/, (m, a, _o, c) => `${a}${escapeHtml(p.priceDisplay)}${c}`);
-      if (p.image) {
-        card = card.replace(/style="[^"]*"/, `style="background-image:url('${p.image}');background-size:cover;background-position:center"`);
-      }
-      card = card.replace(/data-n="[^"]*"/, `data-n="${escapeHtml(p.name)}"`);
-      card = card.replace(/data-p="[^"]*"/, `data-p="${p.priceNumber || ''}"`);
-      const token = `@@CARD${extractedCards.length}@@`;
-      extractedCards.push(card);
-      return token;
+      slots.push(cardHtml);
+      return `@@CARD${slots.length - 1}@@`;
     });
+
+    const extractedCards = slots.map((cardHtml, i) => fillCard(cardHtml, products[i % products.length]));
+
+    // Add extra cards (copies of the template's card markup) after the last
+    // card, so they sit in the same grid, until every product has a card.
+    if (slots.length > 0) {
+      const total = Math.min(products.length, MAX_CARDS);
+      const extra = [];
+      for (let i = slots.length; i < total; i++) {
+        extra.push(fillCard(slots[i % slots.length], products[i]));
+      }
+      if (extra.length) {
+        extractedCards[extractedCards.length - 1] += '\n' + extra.join('\n');
+      }
+    }
 
     // Step 2: every remaining placeholder image uses a CSS gradient
     // as its background — true across all 35 templates regardless of

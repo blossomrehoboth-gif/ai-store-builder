@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{TITLE}}</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Unbounded:wght@600;700;800&family=Outfit:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --ink:hsl(240,45%,14%); --blue:{{ACCENT}}; --blue-dark:color-mix(in srgb,{{ACCENT}} 78%,#000); --mist:hsl(240,42%,95%);
+  --line:hsl(240,25%,87%); --white:#fff; --amber:hsl(30,95%,64%); --muted:hsl(240,14%,37%);
+  --alt:hsl(0,60%,62%); --alt2:hsl(120,65%,70%);
+  --radius:24px; --pill:999px; --hw:700; --gutter:clamp(16px,4vw,48px);
+  --display:"Unbounded",system-ui,sans-serif;
+  --body:"Outfit",system-ui,sans-serif;
+}
+*{box-sizing:border-box;margin:0}
+body{font-family:var(--body);color:var(--ink);background:var(--white);line-height:1.55;-webkit-text-size-adjust:100%}
+img,svg{max-width:100%;display:block}
+a{color:inherit;text-decoration:none}
+:focus-visible{outline:3px solid var(--blue);outline-offset:3px;border-radius:6px}
+.wrap{max-width:1240px;margin-inline:auto;padding-inline:var(--gutter)}
+
+/* announcement */
+.announce{background:var(--ink);color:#fff;font-size:.8rem;text-align:center;padding:8px var(--gutter)}
+
+/* header — mobile first */
+header{position:sticky;top:0;z-index:20;background:rgba(255,255,255,.94);backdrop-filter:blur(8px);border-bottom:1px solid var(--line)}
+.bar{display:flex;align-items:center;justify-content:space-between;height:60px}
+.logo{font-family:var(--display);font-weight:var(--hw);font-size:1.35rem;letter-spacing:-.02em}
+.logo b{color:var(--blue)}
+nav ul{list-style:none;padding:0}
+nav{position:absolute;left:0;right:0;top:100%;background:#fff;border-bottom:1px solid var(--line);display:none}
+nav.open{display:block}
+nav a{display:block;padding:14px var(--gutter);font-weight:700;border-top:1px solid var(--mist)}
+.actions{display:flex;gap:8px;align-items:center}
+.icon-btn{border:0;background:var(--mist);height:42px;min-width:42px;border-radius:var(--pill);font:inherit;font-weight:700;cursor:pointer;padding:0 14px}
+.icon-btn:hover{background:var(--line)}
+
+/* hero */
+.hero{background:var(--mist);padding-block:36px 44px}
+.hero-grid{display:grid;gap:28px}
+h1{font-family:var(--display);font-weight:var(--hw);font-size:clamp(2.1rem,8vw,4rem);line-height:1.02;letter-spacing:-.03em;max-width:14ch}
+.hero p{color:var(--muted);margin-top:14px;max-width:46ch;font-size:1.05rem}
+.btns{display:flex;flex-wrap:wrap;gap:10px;margin-top:22px}
+.btn{display:inline-flex;align-items:center;justify-content:center;min-height:48px;padding:0 24px;border-radius:var(--pill);font-weight:700;border:2px solid var(--ink);cursor:pointer;font-family:inherit;font-size:1rem;transition:background .2s,color .2s}
+.btn.primary{background:var(--blue);border-color:var(--blue);color:#fff}
+.btn.primary:hover{background:var(--blue-dark);border-color:var(--blue-dark)}
+.btn.ghost:hover{background:var(--ink);color:#fff}
+.hero-art{display:grid;grid-template-columns:1.2fr 1fr;gap:12px}
+.hero-art .ph:first-child{grid-row:span 2;aspect-ratio:3/4}
+
+/* placeholder images — swap for <img> tags */
+.ph{border-radius:var(--radius);background:linear-gradient(145deg,color-mix(in srgb,var(--blue) 30%,#fff),color-mix(in srgb,var(--blue) 10%,#fff));position:relative;overflow:hidden;display:grid;place-items:center;color:var(--blue-dark);font-weight:700;font-size:.8rem}
+.ph.b{background:linear-gradient(145deg,color-mix(in srgb,var(--amber) 55%,#fff),color-mix(in srgb,var(--amber) 18%,#fff));color:var(--ink)}
+.ph.c{background:linear-gradient(145deg,color-mix(in srgb,var(--alt) 45%,#fff),color-mix(in srgb,var(--alt) 15%,#fff));color:var(--ink)}
+.ph.d{background:linear-gradient(145deg,color-mix(in srgb,var(--alt2) 45%,#fff),color-mix(in srgb,var(--alt2) 15%,#fff));color:var(--ink)}
+.ph img{width:100%;height:100%;object-fit:cover}
+
+/* trust strip */
+.trust{display:grid;grid-template-columns:1fr 1fr;gap:1px;background:var(--line);border-block:1px solid var(--line)}
+.trust div{background:#fff;padding:16px var(--gutter);font-size:.88rem}
+.trust strong{display:block;font-size:.95rem}
+
+/* products */
+section.shop{padding-block:44px}
+.head{display:flex;justify-content:space-between;align-items:end;gap:12px;margin-bottom:22px}
+h2{font-family:var(--display);font-size:clamp(1.5rem,5vw,2.3rem);letter-spacing:-.02em;line-height:1.1}
+.chips{display:flex;gap:8px;overflow-x:auto;padding-bottom:6px;margin-bottom:18px;scrollbar-width:none}
+.chips::-webkit-scrollbar{display:none}
+.chip{flex:none;border:1px solid var(--line);background:#fff;border-radius:var(--pill);padding:8px 16px;font:inherit;font-weight:700;font-size:.9rem;cursor:pointer}
+.chip[aria-pressed="true"]{background:var(--ink);color:#fff;border-color:var(--ink)}
+.grid{display:grid;grid-template-columns:repeat(2,1fr);gap:18px 12px}
+.card .ph{aspect-ratio:1/1}
+.badge{position:absolute;top:8px;left:8px;background:var(--amber);color:var(--ink);font-size:.72rem;font-weight:800;padding:3px 9px;border-radius:var(--pill)}
+.card h3{font-size:.95rem;font-weight:700;margin-top:10px;line-height:1.3}
+.rating{font-size:.8rem;color:var(--muted)}
+.price{margin-top:4px;font-weight:800}
+.price s{color:var(--muted);font-weight:500;margin-left:6px;font-size:.88rem}
+.card .btn{width:100%;min-height:42px;margin-top:10px;font-size:.9rem}
+
+/* delivery band */
+.band{background:var(--ink);color:#fff;padding-block:40px}
+.band p{color:#b8c1d6;max-width:52ch;margin-top:10px}
+.steps{display:grid;gap:14px;margin-top:22px;list-style:none;padding:0}
+.steps li{border-left:3px solid var(--blue);padding-left:14px}
+.steps b{display:block}
+
+footer{padding-block:32px;color:var(--muted);font-size:.88rem}
+footer .cols{display:grid;gap:20px}
+footer a{display:block;padding:4px 0}
+
+/* ≥ 480px: small phones landscape / large phones */
+@media (min-width:480px){
+  .btns .btn{flex:0 0 auto}
+  .grid{gap:24px 16px}
+}
+
+/* ≥ 720px: tablets */
+@media (min-width:720px){
+  .hero{padding-block:56px 64px}
+  .hero-grid{grid-template-columns:1.1fr 1fr;align-items:center;gap:40px}
+  .trust{grid-template-columns:repeat(4,1fr)}
+  .grid{grid-template-columns:repeat(3,1fr)}
+  .steps{grid-template-columns:repeat(3,1fr);gap:28px}
+  footer .cols{grid-template-columns:2fr 1fr 1fr 1fr}
+}
+
+/* ≥ 1024px: laptops — inline nav */
+@media (min-width:1024px){
+  .bar{height:72px}
+  #menuBtn{display:none}
+  nav{position:static;display:block;border:0;background:none}
+  nav ul{display:flex;gap:28px}
+  nav a{padding:0;border:0;font-weight:600;font-size:.95rem}
+  nav a:hover{color:var(--blue)}
+  .hero-grid{gap:72px}
+  section.shop{padding-block:72px}
+}
+
+/* ≥ 1280px: desktops */
+@media (min-width:1280px){
+  .grid{grid-template-columns:repeat(4,1fr);gap:32px 20px}
+  .card h3{font-size:1rem}
+}
+
+/* hover only on devices that truly hover */
+@media (hover:hover){
+  .card .ph{transition:transform .25s}
+  .card:hover .ph{transform:translateY(-3px)}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+@media print{header,.announce,.band{display:none}}
+main{display:flex;flex-direction:column}
+.hero{order:2}.trust{order:1}section.shop{order:3}.band{order:4}
+@media(min-width:1024px){.bar{display:grid;grid-template-columns:1fr auto 1fr;grid-template-areas:'. logo actions' 'nav nav nav';height:auto;padding-block:12px 4px;row-gap:4px}.logo{grid-area:logo}.actions{grid-area:actions;justify-self:end}nav{grid-area:nav;justify-self:center}nav ul{justify-content:center}}
+@media(min-width:720px){.hero-art{order:-1}}
+@media(min-width:720px){.shop .head{justify-content:center;text-align:center}.shop .chips{justify-content:center}}
+@media(min-width:720px){.grid .card:first-child{grid-column:span 2}.grid .card:first-child .ph{aspect-ratio:2/1.02}}
+footer .cols{text-align:center}
+
+</style>
+</head>
+<body>
+
+<div class="announce">Tracked delivery · Secure checkout</div>
+
+<header>
+  <div class="wrap bar">
+    <a class="logo" href="#">{{LOGO}}</a>
+    <nav id="nav" aria-label="Main">
+      <ul>
+        <li><a href="#shop">Shop all</a></li>
+        <li><a href="#delivery">Shipping</a></li>
+      </ul>
+    </nav>
+    <div class="actions">
+      <button class="icon-btn" id="cartBtn" aria-label="Cart, 0 items">Cart <span id="count">0</span></button>
+      <button class="icon-btn" id="menuBtn" aria-expanded="false" aria-controls="nav">Menu</button>
+    </div>
+  </div>
+</header>
+
+<main>
+  <section class="hero">
+    <div class="wrap hero-grid">
+      <div>
+        <h1>{{HEADLINE}}</h1>
+        <p>Our best sellers, shipped to your door with tracking.</p>
+        <div class="btns">
+          <a class="btn primary" href="#shop">Shop now</a>
+          <a class="btn ghost" href="#delivery">How shipping works</a>
+        </div>
+      </div>
+      <div class="hero-art" aria-hidden="true">
+{{HERO_ART}}
+      </div>
+    </div>
+  </section>
+
+  <div class="trust">
+    <div><strong>Tracked delivery</strong>Tracking link by email</div>
+    <div><strong>Secure checkout</strong>Pay safely online</div>
+    <div><strong>Customer support</strong>We are here to help</div>
+    <div><strong>Best sellers</strong>Popular right now</div>
+  </div>
+
+  <section class="shop" id="shop">
+    <div class="wrap">
+      <div class="head"><h2>Best sellers</h2></div>
+      <div class="grid" id="grid"></div>
+    </div>
+  </section>
+
+  <section class="band" id="delivery">
+    <div class="wrap">
+      <h2>From order to doorstep</h2>
+      <p>We ship from partner warehouses, so delivery takes longer than next day. You get tracking at every step.</p>
+      <ol class="steps">
+        <li><b>You order</b>Payment is confirmed instantly.</li>
+        <li><b>We pack and ship</b>Your order is sent as soon as it is processed.</li>
+        <li><b>You track it</b>A tracking link arrives by email.</li>
+      </ol>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap cols">
+    <div><a class="logo" href="#">{{LOGO}}</a><p>{{TAGLINE}}</p></div>
+    <div><a href="#">Shipping policy</a><a href="#">Returns</a></div>
+    <div><a href="#">Contact</a><a href="#">Track order</a></div>
+    <div><a href="#">Privacy</a><a href="#">Terms</a></div>
+  </div>
+</footer>
+
+<script>
+const products = {{PRODUCTS_JSON}};
+const esc = s => String(s == null ? "" : s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const grid = document.getElementById("grid");
+grid.innerHTML = products.map(p => `
+    <article class="card">
+      <div class="ph">${p.image ? `<img src="${esc(p.image)}" alt="${esc(p.name)}" loading="lazy">` : ""}</div>
+      <h3>${esc(p.name)}</h3>
+      <div class="price">${esc(p.price)}</div>
+      <button class="btn ghost add">Add to cart</button>
+    </article>`).join("");
+
+let n = 0;
+grid.addEventListener("click", e => {
+  if (!e.target.classList.contains("add")) return;
+  n++; document.getElementById("count").textContent = n;
+  document.getElementById("cartBtn").setAttribute("aria-label", `Cart, ${n} items`);
+  e.target.textContent = "Added"; setTimeout(() => e.target.textContent = "Add to cart", 1200);
+});
+const menu = document.getElementById("menuBtn"), nav = document.getElementById("nav");
+menu.addEventListener("click", () => { const o = nav.classList.toggle("open"); menu.setAttribute("aria-expanded", o) });
+</script>
+</body>
+</html>
