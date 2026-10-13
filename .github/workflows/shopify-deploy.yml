@@ -1,0 +1,23 @@
+name: Send app settings to Shopify
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'shopify.app.production.toml'
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Install Shopify CLI
+        run: npm install -g @shopify/cli@latest
+      - name: Send settings to Shopify
+        env:
+          SHOPIFY_CLI_NO_ANALYTICS: '1'
+          SHOPIFY_APP_AUTOMATION_TOKEN: ${{ secrets.SHOPIFY_APP_AUTOMATION_TOKEN }}
+        run: shopify app deploy --config production --allow-updates
