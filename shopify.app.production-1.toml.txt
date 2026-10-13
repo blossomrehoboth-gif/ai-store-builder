@@ -1,0 +1,27 @@
+# Settings for the "AI Store Builder Public" app. GitHub sends this file to Shopify.
+client_id = "bb3b8b687e808167495b74e7b8cae9f7"
+name = "AI Store Builder Public"
+application_url = "https://ai-store-builder-fbu8.onrender.com"
+embedded = false
+
+[access_scopes]
+use_legacy_install_flow = true
+
+[auth]
+redirect_urls = [ "https://ai-store-builder-fbu8.onrender.com/auth/callback" ]
+
+[webhooks]
+api_version = "2026-10"
+
+  # The three privacy webhooks Shopify requires for public apps.
+  [[webhooks.subscriptions]]
+  compliance_topics = [ "customers/data_request" ]
+  uri = "https://ai-store-builder-fbu8.onrender.com/webhooks/customers-data-request"
+
+  [[webhooks.subscriptions]]
+  compliance_topics = [ "customers/redact" ]
+  uri = "https://ai-store-builder-fbu8.onrender.com/webhooks/customers-redact"
+
+  [[webhooks.subscriptions]]
+  compliance_topics = [ "shop/redact" ]
+  uri = "https://ai-store-builder-fbu8.onrender.com/webhooks/shop-redact"
