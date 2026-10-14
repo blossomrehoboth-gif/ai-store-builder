@@ -74,6 +74,11 @@ async function cj(apiKey, path, method = 'GET', body, retried = false) {
     body: body ? JSON.stringify(body) : undefined,
   });
   const json = await r.json().catch(() => ({}));
+  // CJ blocks an IP address that has too many different CJ users on it (3 max).
+  // Waiting or retrying cannot fix that, so hand it back straight away.
+  if (json.code === 1600200 && /ip limit/i.test(String(json.message || ''))) {
+    return json;
+  }
   if (!retried) {
     // CJ allows about 1 request/second; wait and retry once if we hit the limit.
     if (r.status === 429 || json.code === 1600200) {
@@ -172,6 +177,11 @@ async function searchCjList(apiKey, term) {
       return list;
     }
     console.error(`CJ search "${term}" (pageSize ${size}) returned no list:`, json?.code, json?.message);
+    if (json?.code === 1600200 && /ip limit/i.test(String(json?.message || ''))) {
+      const err = new Error('CJ is blocking this server address (IP limit).');
+      err.cjBusy = true;
+      throw err;
+    }
   }
   return [];
 }
@@ -353,6 +363,9 @@ module.exports = function registerCj(app) {
       res.json({ items: scored.slice(0, want).map((s) => s.item) });
     } catch (e) {
       console.error('CJ search failed:', e);
+      if (e.cjBusy) {
+        return res.json({ items: [], error: 'CJ is blocking this server address right now. Please try again later.' });
+      }
       res.json({ items: [] });
     }
   });
