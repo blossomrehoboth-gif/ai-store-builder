@@ -21,5 +21,4 @@ jobs:
         env:
           SHOPIFY_CLI_NO_ANALYTICS: '1'
           SHOPIFY_APP_AUTOMATION_TOKEN: ${{ secrets.SHOPIFY_APP_AUTOMATION_TOKEN }}
-          SHOPIFY_CLI_PARTNERS_TOKEN: ${{ secrets.SHOPIFY_APP_AUTOMATION_TOKEN }}
         run: shopify app deploy --config production --allow-updates
