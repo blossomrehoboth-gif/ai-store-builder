@@ -605,6 +605,50 @@ app.post('/api/orders/:orderId/fulfilled', requireUser, async (req, res) => {
 // ---------- end order fulfillment ----------
 require('./cj')(app); // CJ Dropshipping: product search/lookup, balance, SKU tools, manual retry route
 
+// ---------- Features put back: tracking, product research, daily check ----------
+try {
+  require('./tracking')(app, auth, db); // CJ order status + tracking numbers ("Refresh tracking" button)
+} catch (e) {
+  console.error('tracking.js could not load (the app keeps running without it):', e);
+}
+
+// Product research / winner finder. These routes had no login check of their own,
+// so only logged-in users may use them.
+app.use('/api/research', requireUser);
+try {
+  require('./research')(app);
+} catch (e) {
+  console.error('research.js could not load (the app keeps running without it):', e);
+}
+
+// Daily price & stock check. Render's free plan has no scheduler, so an outside timer
+// (for example cron-job.org) opens this address once a day. It needs CRON_SECRET in Render.
+let dailyCheckRunning = false;
+app.get('/api/cron/daily-check', async (req, res) => {
+  const secret = process.env.CRON_SECRET;
+  if (!secret) return res.status(503).send('Daily check is off: CRON_SECRET is not set.');
+  const given = Buffer.from(String(req.query.key || ''));
+  const wanted = Buffer.from(secret);
+  if (given.length !== wanted.length || !crypto.timingSafeEqual(given, wanted)) {
+    return res.status(401).send('Wrong key.');
+  }
+  if (dailyCheckRunning) return res.status(202).send('Already running.');
+  res.status(202).send('Started.'); // answer first, the check takes a while
+  dailyCheckRunning = true;
+  try {
+    const { runPriceCheckForAllShops } = require('./priceCheckJob');
+    const summary = await runPriceCheckForAllShops();
+    console.log('Daily check done:', JSON.stringify(summary.map((x) => ({
+      shop: x.shop, ok: x.ok, reason: x.reason || null, products: (x.results || []).length,
+    }))));
+  } catch (e) {
+    console.error('Daily check failed:', e);
+  } finally {
+    dailyCheckRunning = false;
+  }
+});
+// ---------- end features put back ----------
+
 // ---------- Publish generated concept to Shopify ----------
 // Uses the REST Admin API to mark a product published — this avoids the
 // GraphQL `publications` query, which regular (non-channel) custom apps
