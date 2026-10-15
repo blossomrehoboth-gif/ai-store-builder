@@ -226,6 +226,7 @@ app.get('/auth/callback', async (req, res) => {
         client_id: SHOPIFY_API_KEY,
         client_secret: SHOPIFY_API_SECRET,
         code,
+        expiring: 1, // Shopify requires expiring tokens for new public apps
       }),
     });
     const data = await r.json();
@@ -235,7 +236,11 @@ app.get('/auth/callback', async (req, res) => {
     }
 
     // The store now belongs to the user who started the connection.
-    await db.setShopToken(shop, data.access_token, pending.userId);
+    await db.setShopToken(shop, data.access_token, pending.userId, {
+      refreshToken: data.refresh_token,
+      expiresIn: data.expires_in,
+      refreshExpiresIn: data.refresh_token_expires_in,
+    });
     console.log('Connected shop:', shop, 'for user', pending.userId);
     res.redirect(`/account?connected=${encodeURIComponent(shop)}`);
   } catch (err) {
