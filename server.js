@@ -214,7 +214,18 @@ app.get('/auth/callback', async (req, res) => {
     // Shopify can open the app without an install code; send those through /auth.
     if (!code) return res.redirect(`/auth?shop=${encodeURIComponent(shop)}`);
 
-    if (!validHmac(req.query)) return res.status(400).send('Invalid signature.');
+    if (!validHmac(req.query)) {
+      // TEMP DEBUG: safe to leave in logs, never prints the full secret. Remove once fixed.
+      const sec = process.env.SHOPIFY_API_SECRET || '';
+      console.error('HMAC debug:', {
+        secretLength: sec.length,
+        secretEnd: sec.slice(-4),
+        secretHasSpace: sec !== sec.trim(),
+        keyStart: (process.env.SHOPIFY_API_KEY || '').slice(0, 6),
+        queryKeys: Object.keys(req.query),
+      });
+      return res.status(400).send('Invalid signature.');
+    }
     const pending = pendingStates.get(state);
     if (!pending || pending.shop !== shop) return res.status(400).send('Invalid state. Start again from the Account page.');
     pendingStates.delete(state);
