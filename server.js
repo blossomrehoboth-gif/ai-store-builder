@@ -214,18 +214,7 @@ app.get('/auth/callback', async (req, res) => {
     // Shopify can open the app without an install code; send those through /auth.
     if (!code) return res.redirect(`/auth?shop=${encodeURIComponent(shop)}`);
 
-    if (!validHmac(req.query)) {
-      // TEMP DEBUG: safe to leave in logs, never prints the full secret. Remove once fixed.
-      const sec = process.env.SHOPIFY_API_SECRET || '';
-      console.error('HMAC debug:', {
-        secretLength: sec.length,
-        secretEnd: sec.slice(-4),
-        secretHasSpace: sec !== sec.trim(),
-        keyStart: (process.env.SHOPIFY_API_KEY || '').slice(0, 6),
-        queryKeys: Object.keys(req.query),
-      });
-      return res.status(400).send('Invalid signature.');
-    }
+    if (!validHmac(req.query)) return res.status(400).send('Invalid signature.');
     const pending = pendingStates.get(state);
     if (!pending || pending.shop !== shop) return res.status(400).send('Invalid state. Start again from the Account page.');
     pendingStates.delete(state);
@@ -237,7 +226,7 @@ app.get('/auth/callback', async (req, res) => {
         client_id: SHOPIFY_API_KEY,
         client_secret: SHOPIFY_API_SECRET,
         code,
-        expiring: 1, // Shopify requires expiring tokens for new public apps
+        expiring: 1, // Shopify requires expiring tokens for new public apps (db.js renews them)
       }),
     });
     const data = await r.json();
@@ -622,20 +611,12 @@ app.post('/api/orders/:orderId/fulfilled', requireUser, async (req, res) => {
 require('./cj')(app); // CJ Dropshipping: product search/lookup, balance, SKU tools, manual retry route
 
 // ---------- Features put back: tracking, product research, daily check ----------
-try {
-  require('./tracking')(app, auth, db); // CJ order status + tracking numbers ("Refresh tracking" button)
-} catch (e) {
-  console.error('tracking.js could not load (the app keeps running without it):', e);
-}
+require('./tracking')(app, auth, db); // CJ order status + tracking numbers ("Refresh tracking" button)
 
 // Product research / winner finder. These routes had no login check of their own,
 // so only logged-in users may use them.
 app.use('/api/research', requireUser);
-try {
-  require('./research')(app);
-} catch (e) {
-  console.error('research.js could not load (the app keeps running without it):', e);
-}
+require('./research')(app);
 
 // Daily price & stock check. Render's free plan has no scheduler, so an outside timer
 // (for example cron-job.org) opens this address once a day. It needs CRON_SECRET in Render.
