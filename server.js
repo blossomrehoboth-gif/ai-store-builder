@@ -185,13 +185,14 @@ function validHmac(query) {
     .sort()
     .map((k) => `${k}=${rest[k]}`)
     .join('&');
-  const digest = crypto
-    .createHmac('sha256', SHOPIFY_API_SECRET)
-    .update(message)
-    .digest('hex');
-  const a = Buffer.from(digest);
-  const b = Buffer.from(String(hmac));
-  return a.length === b.length && crypto.timingSafeEqual(a, b);
+  // Accept the current secret, and the previous one (SHOPIFY_API_SECRET_PREV) while it is still active in Shopify.
+  const secrets = [SHOPIFY_API_SECRET, process.env.SHOPIFY_API_SECRET_PREV].filter(Boolean);
+  return secrets.some((secret) => {
+    const digest = crypto.createHmac('sha256', secret).update(message).digest('hex');
+    const a = Buffer.from(digest);
+    const b = Buffer.from(String(hmac));
+    return a.length === b.length && crypto.timingSafeEqual(a, b);
+  });
 }
 
 app.get('/auth', requireUser, (req, res) => {
@@ -242,7 +243,15 @@ app.get('/auth/callback', async (req, res) => {
       refreshExpiresIn: data.refresh_token_expires_in,
     });
     console.log('Connected shop:', shop, 'for user', pending.userId);
-    res.redirect(`/account?connected=${encodeURIComponent(shop)}`);
+    const doneUrl = `/account?connected=${encodeURIComponent(shop)}`;
+    // Billing (off unless BILLING_ENABLED=true): ask Shopify to show the seller the "Approve charge" screen.
+    try {
+      const approveUrl = await require('./billing').startSubscription(shop, data.access_token, `${APP_URL}${doneUrl}`);
+      if (approveUrl) return res.redirect(approveUrl);
+    } catch (billingErr) {
+      console.error('Billing setup failed (the store is still connected):', billingErr);
+    }
+    res.redirect(doneUrl);
   } catch (err) {
     console.error(err);
     res.status(500).send('Something went wrong.');
@@ -346,6 +355,11 @@ app.post('/webhooks/orders-create', express.raw({ type: 'application/json' }), a
 
     console.log(`New order #${order.order_number} from ${shop} — ${lineItems.length} item(s)`);
     res.status(200).send('ok');
+
+    // Add our fee for this order to the seller's Shopify bill (does nothing unless BILLING_ENABLED=true).
+    db.getShopToken(shop)
+      .then((tok) => tok && require('./billing').chargeOrder(shop, tok, newOrder))
+      .catch((err) => console.error('Billing hook error:', err));
 
     // Fire off the CJ order right away — don't make Shopify wait for it.
     require('./cj').autoOrderWithCj(newOrder).catch((err) => {
@@ -611,12 +625,20 @@ app.post('/api/orders/:orderId/fulfilled', requireUser, async (req, res) => {
 require('./cj')(app); // CJ Dropshipping: product search/lookup, balance, SKU tools, manual retry route
 
 // ---------- Features put back: tracking, product research, daily check ----------
-require('./tracking')(app, auth, db); // CJ order status + tracking numbers ("Refresh tracking" button)
+try {
+  require('./tracking')(app, auth, db); // CJ order status + tracking numbers ("Refresh tracking" button)
+} catch (e) {
+  console.error('tracking.js could not load (the app keeps running without it):', e);
+}
 
 // Product research / winner finder. These routes had no login check of their own,
 // so only logged-in users may use them.
 app.use('/api/research', requireUser);
-require('./research')(app);
+try {
+  require('./research')(app);
+} catch (e) {
+  console.error('research.js could not load (the app keeps running without it):', e);
+}
 
 // Daily price & stock check. Render's free plan has no scheduler, so an outside timer
 // (for example cron-job.org) opens this address once a day. It needs CRON_SECRET in Render.
