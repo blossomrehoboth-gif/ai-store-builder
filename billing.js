@@ -9,8 +9,8 @@
 
 const API_VERSION = '2024-10';
 
-const enabled = () => process.env.BILLING_ENABLED === 'true';
-const isTest = () => process.env.BILLING_TEST !== 'false';
+const enabled = () => String(process.env.BILLING_ENABLED || '').trim().toLowerCase() === 'true';
+const isTest = () => String(process.env.BILLING_TEST || '').trim().toLowerCase() !== 'false';
 const percent = () => Number(process.env.BILLING_PERCENT || 5);
 const cap = () => Number(process.env.BILLING_CAP || 100);
 
@@ -44,8 +44,14 @@ async function activeUsageLineItemId(shop, token) {
 // Asks Shopify to show the seller an "Approve charge" screen.
 // Returns the address to send the seller to, or null if there is nothing to approve.
 async function startSubscription(shop, token, returnUrl) {
-  if (!enabled()) return null;
-  if (await activeUsageLineItemId(shop, token)) return null; // already approved
+  if (!enabled()) {
+    console.log(`Billing: skipped for ${shop} because BILLING_ENABLED is "${process.env.BILLING_ENABLED || ''}" (must be true).`);
+    return null;
+  }
+  if (await activeUsageLineItemId(shop, token)) {
+    console.log(`Billing: ${shop} already has an approved plan, nothing to approve.`);
+    return null; // already approved
+  }
   const d = await gql(
     shop,
     token,
