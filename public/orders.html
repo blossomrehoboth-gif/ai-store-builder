@@ -14,7 +14,7 @@
     --info:#3B5BDB;--info-bg:#E7ECFF;
   }
   *{box-sizing:border-box;margin:0;padding:0}
-  body{font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--ink);line-height:1.45;padding-bottom:110px;-webkit-text-size-adjust:100%}
+  body{font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--ink);line-height:1.45;-webkit-text-size-adjust:100%}
   .top{display:flex;justify-content:space-between;align-items:center;padding:14px 18px;border-bottom:1px solid var(--line);position:sticky;top:0;background:rgba(255,255,255,.96);z-index:5}
   .top .logo{font-weight:800;font-size:17px;letter-spacing:-.02em;display:none}
   .top nav{display:flex;gap:4px;overflow-x:auto}
@@ -57,20 +57,20 @@
   .ghost.primary{background:var(--violet);border-color:var(--violet);color:#fff}
   .ghost:disabled{opacity:.55}
   .empty{text-align:center;color:var(--muted);margin-top:50px}
-  .dock{position:fixed;left:0;right:0;bottom:0;padding:12px 16px calc(12px + env(safe-area-inset-bottom));background:linear-gradient(to top,#fff 70%,rgba(255,255,255,0));display:flex;gap:10px;justify-content:center}
-  .fab{flex:1;max-width:340px;font:inherit;font-weight:800;font-size:16px;min-height:52px;border:0;border-radius:14px;background:var(--violet);color:#fff;cursor:pointer;box-shadow:0 8px 20px rgba(109,63,242,.35)}
+  .dock{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:0 0 20px}
+  .fab{font:inherit;font-weight:700;font-size:14px;line-height:1.2;min-height:48px;padding:8px 10px;border:0;border-radius:12px;background:var(--violet);color:#fff;cursor:pointer}
   .fab:active{background:var(--violet-dark)}
   .fab:disabled{opacity:.6}
-  .fab.alt{background:#fff;color:var(--violet-dark);border:1.5px solid var(--violet);box-shadow:none}
+  .fab.alt{background:#fff;color:var(--violet-dark);border:1.5px solid var(--violet)}
+  .back-btn{display:inline-flex;align-items:center;gap:8px;margin-bottom:18px;padding:10px 16px;background:#fff;border:1px solid var(--line);border-radius:12px;color:var(--ink);text-decoration:none;font-weight:700;font-size:15px}
   @media (min-width:700px){
     .top .logo{display:block}
     .top{padding:14px 32px}
     .page{padding:36px 32px}
     h1{font-size:38px}
     .row-body{grid-template-columns:1.3fr 1fr;align-items:start}
-    .dock{position:static;background:none;padding:0;justify-content:flex-start;margin-bottom:22px}
-    .fab{flex:none;padding:0 24px;max-width:none}
-    body{padding-bottom:40px}
+    .dock{display:flex;gap:10px}
+    .fab{padding:0 24px}
   }
   @media (min-width:1000px){.page{max-width:900px}}
   @media (prefers-reduced-motion:reduce){*{transition:none!important}}
@@ -79,6 +79,7 @@
 <body>
 
 <main class="page">
+  <a href="/dashboard" class="back-btn">&larr; Back to dashboard</a>
   <h1>Orders</h1>
   <p class="sub">Orders reach CJ automatically. You only act on failures.</p>
 
