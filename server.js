@@ -185,14 +185,13 @@ function validHmac(query) {
     .sort()
     .map((k) => `${k}=${rest[k]}`)
     .join('&');
-  // Accept the current secret, and the previous one (SHOPIFY_API_SECRET_PREV) while it is still active in Shopify.
-  const secrets = [SHOPIFY_API_SECRET, process.env.SHOPIFY_API_SECRET_PREV].filter(Boolean);
-  return secrets.some((secret) => {
-    const digest = crypto.createHmac('sha256', secret).update(message).digest('hex');
-    const a = Buffer.from(digest);
-    const b = Buffer.from(String(hmac));
-    return a.length === b.length && crypto.timingSafeEqual(a, b);
-  });
+  const digest = crypto
+    .createHmac('sha256', SHOPIFY_API_SECRET)
+    .update(message)
+    .digest('hex');
+  const a = Buffer.from(digest);
+  const b = Buffer.from(String(hmac));
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
 }
 
 app.get('/auth', requireUser, (req, res) => {
@@ -215,7 +214,18 @@ app.get('/auth/callback', async (req, res) => {
     // Shopify can open the app without an install code; send those through /auth.
     if (!code) return res.redirect(`/auth?shop=${encodeURIComponent(shop)}`);
 
-    if (!validHmac(req.query)) return res.status(400).send('Invalid signature.');
+    if (!validHmac(req.query)) {
+      // TEMP DEBUG: safe to leave in logs, never prints the full secret. Remove once fixed.
+      const sec = process.env.SHOPIFY_API_SECRET || '';
+      console.error('HMAC debug:', {
+        secretLength: sec.length,
+        secretEnd: sec.slice(-4),
+        secretHasSpace: sec !== sec.trim(),
+        keyStart: (process.env.SHOPIFY_API_KEY || '').slice(0, 6),
+        queryKeys: Object.keys(req.query),
+      });
+      return res.status(400).send('Invalid signature.');
+    }
     const pending = pendingStates.get(state);
     if (!pending || pending.shop !== shop) return res.status(400).send('Invalid state. Start again from the Account page.');
     pendingStates.delete(state);
@@ -227,7 +237,7 @@ app.get('/auth/callback', async (req, res) => {
         client_id: SHOPIFY_API_KEY,
         client_secret: SHOPIFY_API_SECRET,
         code,
-        expiring: 1, // Shopify requires expiring tokens for new public apps (db.js renews them)
+        expiring: 1, // Shopify requires expiring tokens for new public apps
       }),
     });
     const data = await r.json();
@@ -243,15 +253,7 @@ app.get('/auth/callback', async (req, res) => {
       refreshExpiresIn: data.refresh_token_expires_in,
     });
     console.log('Connected shop:', shop, 'for user', pending.userId);
-    const doneUrl = `/account?connected=${encodeURIComponent(shop)}`;
-    // Billing (off unless BILLING_ENABLED=true): ask Shopify to show the seller the "Approve charge" screen.
-    try {
-      const approveUrl = await require('./billing').startSubscription(shop, data.access_token, `${APP_URL}${doneUrl}`);
-      if (approveUrl) return res.redirect(approveUrl);
-    } catch (billingErr) {
-      console.error('Billing setup failed (the store is still connected):', billingErr);
-    }
-    res.redirect(doneUrl);
+    res.redirect(`/account?connected=${encodeURIComponent(shop)}`);
   } catch (err) {
     console.error(err);
     res.status(500).send('Something went wrong.');
@@ -355,11 +357,6 @@ app.post('/webhooks/orders-create', express.raw({ type: 'application/json' }), a
 
     console.log(`New order #${order.order_number} from ${shop} — ${lineItems.length} item(s)`);
     res.status(200).send('ok');
-
-    // Add our fee for this order to the seller's Shopify bill (does nothing unless BILLING_ENABLED=true).
-    db.getShopToken(shop)
-      .then((tok) => tok && require('./billing').chargeOrder(shop, tok, newOrder))
-      .catch((err) => console.error('Billing hook error:', err));
 
     // Fire off the CJ order right away — don't make Shopify wait for it.
     require('./cj').autoOrderWithCj(newOrder).catch((err) => {
