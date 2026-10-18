@@ -185,13 +185,14 @@ function validHmac(query) {
     .sort()
     .map((k) => `${k}=${rest[k]}`)
     .join('&');
-  const digest = crypto
-    .createHmac('sha256', SHOPIFY_API_SECRET)
-    .update(message)
-    .digest('hex');
-  const a = Buffer.from(digest);
-  const b = Buffer.from(String(hmac));
-  return a.length === b.length && crypto.timingSafeEqual(a, b);
+  // Accept the current secret, and the previous one (SHOPIFY_API_SECRET_PREV) while it is still active in Shopify.
+  const secrets = [SHOPIFY_API_SECRET, process.env.SHOPIFY_API_SECRET_PREV].filter(Boolean);
+  return secrets.some((secret) => {
+    const digest = crypto.createHmac('sha256', secret).update(message).digest('hex');
+    const a = Buffer.from(digest);
+    const b = Buffer.from(String(hmac));
+    return a.length === b.length && crypto.timingSafeEqual(a, b);
+  });
 }
 
 app.get('/auth', requireUser, (req, res) => {
@@ -242,7 +243,17 @@ app.get('/auth/callback', async (req, res) => {
       refreshExpiresIn: data.refresh_token_expires_in,
     });
     console.log('Connected shop:', shop, 'for user', pending.userId);
-    res.redirect(`/account?connected=${encodeURIComponent(shop)}`);
+    // Make sure Shopify tells us about new orders from the moment the store connects (needed for billing and order tracking).
+    await ensureOrderWebhook(shop, data.access_token);
+    const doneUrl = `/account?connected=${encodeURIComponent(shop)}`;
+    // Billing (off unless BILLING_ENABLED=true): ask Shopify to show the seller the "Approve charge" screen.
+    try {
+      const approveUrl = await require('./billing').startSubscription(shop, data.access_token, `${APP_URL}${doneUrl}`);
+      if (approveUrl) return res.redirect(approveUrl);
+    } catch (billingErr) {
+      console.error('Billing setup failed (the store is still connected):', billingErr);
+    }
+    res.redirect(doneUrl);
   } catch (err) {
     console.error(err);
     res.status(500).send('Something went wrong.');
@@ -306,8 +317,10 @@ function validWebhookHmac(rawBody, hmacHeader) {
 // Raw body is needed (not the parsed JSON) to check the signature.
 app.post('/webhooks/orders-create', express.raw({ type: 'application/json' }), async (req, res) => {
   try {
+    console.log('Order alert received from', req.get('X-Shopify-Shop-Domain') || 'unknown shop');
     const hmac = req.get('X-Shopify-Hmac-Sha256');
     if (!validWebhookHmac(req.body, hmac)) {
+      console.warn('Order alert rejected: invalid signature from', req.get('X-Shopify-Shop-Domain') || 'unknown shop', '(check SHOPIFY_API_SECRET matches the app that store connected through)');
       return res.status(401).send('Invalid signature.');
     }
     const shop = req.get('X-Shopify-Shop-Domain');
@@ -346,6 +359,11 @@ app.post('/webhooks/orders-create', express.raw({ type: 'application/json' }), a
 
     console.log(`New order #${order.order_number} from ${shop} — ${lineItems.length} item(s)`);
     res.status(200).send('ok');
+
+    // Add our fee for this order to the seller's Shopify bill (does nothing unless BILLING_ENABLED=true).
+    db.getShopToken(shop)
+      .then((tok) => tok && require('./billing').chargeOrder(shop, tok, newOrder))
+      .catch((err) => console.error('Billing hook error:', err));
 
     // Fire off the CJ order right away — don't make Shopify wait for it.
     require('./cj').autoOrderWithCj(newOrder).catch((err) => {
@@ -611,12 +629,47 @@ app.post('/api/orders/:orderId/fulfilled', requireUser, async (req, res) => {
 require('./cj')(app); // CJ Dropshipping: product search/lookup, balance, SKU tools, manual retry route
 
 // ---------- Features put back: tracking, product research, daily check ----------
-require('./tracking')(app, auth, db); // CJ order status + tracking numbers ("Refresh tracking" button)
+try {
+  require('./tracking')(app, auth, db); // CJ order status + tracking numbers ("Refresh tracking" button)
+} catch (e) {
+  console.error('tracking.js could not load (the app keeps running without it):', e);
+}
 
 // Product research / winner finder. These routes had no login check of their own,
 // so only logged-in users may use them.
 app.use('/api/research', requireUser);
-require('./research')(app);
+try {
+  require('./research')(app);
+} catch (e) {
+  console.error('research.js could not load (the app keeps running without it):', e);
+}
+
+// Billing self-test, so you can check the 5% fee without waiting for a real order.
+// Open: /api/cron/test-billing?key=YOUR_CRON_SECRET&shop=your-store.myshopify.com&amount=20
+// It adds a fake order to that store's bill (a test charge while BILLING_TEST is not "false").
+app.get('/api/cron/test-billing', async (req, res) => {
+  const secret = process.env.CRON_SECRET;
+  if (!secret) return res.status(503).send('Test is off: CRON_SECRET is not set.');
+  const given = Buffer.from(String(req.query.key || ''));
+  const wanted = Buffer.from(secret);
+  if (given.length !== wanted.length || !crypto.timingSafeEqual(given, wanted)) {
+    return res.status(401).send('Wrong key.');
+  }
+  const shop = String(req.query.shop || '');
+  if (!validShop(shop)) return res.status(400).send('Add &shop=your-store.myshopify.com');
+  const billing = require('./billing');
+  if (!billing.enabled()) return res.status(200).send('Billing is OFF. Set BILLING_ENABLED to true in Render.');
+  const token = await db.getShopToken(shop);
+  if (!token) return res.status(404).send('That store is not connected.');
+  const amount = Number(req.query.amount) > 0 ? Number(req.query.amount) : 20;
+  await billing.chargeOrder(shop, token, {
+    orderId: `test-${Date.now()}`,
+    orderNumber: 'TEST',
+    totalPrice: amount,
+    currency: 'USD',
+  });
+  res.status(200).send('Test sent. Now look in the Render logs and search "Billing" to see the result.');
+});
 
 // Daily price & stock check. Render's free plan has no scheduler, so an outside timer
 // (for example cron-job.org) opens this address once a day. It needs CRON_SECRET in Render.
