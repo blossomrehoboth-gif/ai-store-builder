@@ -317,8 +317,10 @@ function validWebhookHmac(rawBody, hmacHeader) {
 // Raw body is needed (not the parsed JSON) to check the signature.
 app.post('/webhooks/orders-create', express.raw({ type: 'application/json' }), async (req, res) => {
   try {
+    console.log('Order alert received from', req.get('X-Shopify-Shop-Domain') || 'unknown shop');
     const hmac = req.get('X-Shopify-Hmac-Sha256');
     if (!validWebhookHmac(req.body, hmac)) {
+      console.warn('Order alert rejected: invalid signature from', req.get('X-Shopify-Shop-Domain') || 'unknown shop', '(check SHOPIFY_API_SECRET matches the app that store connected through)');
       return res.status(401).send('Invalid signature.');
     }
     const shop = req.get('X-Shopify-Shop-Domain');
