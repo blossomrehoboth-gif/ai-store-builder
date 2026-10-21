@@ -89,6 +89,9 @@
   nav#drawer a, nav#drawer a.alt { display: block; padding: 15px 16px; font-size: 16px; font-weight: 700; color: #D6EAE5; background: transparent; border: 0; border-radius: 12px; text-decoration: none; min-height: 52px; text-align: left; }
   nav#drawer a:first-of-type { background: var(--lime); color: #0D2A1F; }
   nav#drawer a:active { background: rgba(255,255,255,.18); color: #fff; }
+  nav#drawer .logout { display: block; width: 100%; margin-top: auto; padding: 15px 16px; font: inherit; font-size: 16px; font-weight: 700; color: #FFD9D4; background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.18); border-radius: 12px; min-height: 52px; text-align: left; cursor: pointer; }
+  nav#drawer .logout:active { background: rgba(255,255,255,.18); color: #fff; }
+  nav#drawer .logout:focus-visible { outline: 3px solid var(--lime); outline-offset: 2px; }
 
   @media (min-width: 700px) {
     header { padding: 12px 28px; }
@@ -115,6 +118,7 @@
     <a href="/research.html" class="alt">Winners</a>
     <a href="/orders" class="alt">Orders</a>
     <a href="/account" class="alt">Account</a>
+    <button type="button" class="logout" id="logoutBtn">Log out</button>
 </nav>
 <div class="wrap">
 
@@ -253,6 +257,12 @@
     }
     btn.onclick = () => setOpen(true);
     $("closeBtn").onclick = () => setOpen(false);
+    $("logoutBtn").onclick = async () => {
+      $("logoutBtn").disabled = true;
+      $("logoutBtn").textContent = "Logging out...";
+      try { await fetch("/api/logout", { method: "POST" }); } catch (e) {}
+      window.location.href = "/login";
+    };
     overlay.onclick = () => setOpen(false);
     document.addEventListener("keydown", (e) => { if (e.key === "Escape" && drawer.classList.contains("open")) setOpen(false); });
   })();
