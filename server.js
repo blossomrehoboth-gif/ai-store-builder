@@ -670,22 +670,64 @@ app.get('/api/cron/daily-check', async (req, res) => {
 // ---------- end features put back ----------
 
 // ---------- Publish generated concept to Shopify ----------
-// Uses the REST Admin API to mark a product published — this avoids the
-// GraphQL `publications` query, which regular (non-channel) custom apps
-// often can't read even with the right scopes. REST's `published: true`
-// does the same thing in one simple call with no extra permissions.
-async function publishProductRest(shop, token, gidOrNumericId) {
-  const numericId = String(gidOrNumericId).split('/').pop();
-  const r = await fetch(`https://${shop}/admin/api/2024-10/products/${numericId}.json`, {
-    method: 'PUT',
+// Publishes a product to the Online Store using the GraphQL Admin API
+// (Shopify requires GraphQL only for public apps). Needs the
+// read_publications and write_publications scopes, which this app requests.
+const SHOPIFY_API_VERSION = '2024-10';
+
+async function shopGraphQL(shop, token, query, variables) {
+  const r = await fetch(`https://${shop}/admin/api/${SHOPIFY_API_VERSION}/graphql.json`, {
+    method: 'POST',
     headers: { 'Content-Type': 'application/json', 'X-Shopify-Access-Token': token },
-    body: JSON.stringify({ product: { id: Number(numericId), published: true } }),
+    body: JSON.stringify({ query, variables }),
   });
-  const data = await r.json();
-  if (!r.ok) {
-    console.error(`Could not publish product ${numericId}:`, data);
+  return r.json();
+}
+
+function productGid(idOrGid) {
+  const s = String(idOrGid);
+  return s.startsWith('gid://') ? s : `gid://shopify/Product/${s}`;
+}
+
+const onlineStorePublicationIds = new Map(); // shop -> publication id (remembered so we only look it up once)
+
+async function getOnlineStorePublicationId(shop, token) {
+  if (onlineStorePublicationIds.has(shop)) return onlineStorePublicationIds.get(shop);
+  const d = await shopGraphQL(shop, token, `{ publications(first: 20) { nodes { id name } } }`);
+  const nodes = d?.data?.publications?.nodes || [];
+  const online = nodes.find((n) => String(n.name).toLowerCase() === 'online store');
+  if (!online) {
+    console.error('Could not find the Online Store publication:', JSON.stringify(d?.errors || nodes).slice(0, 300));
+    return null;
   }
-  return r.ok;
+  onlineStorePublicationIds.set(shop, online.id);
+  return online.id;
+}
+
+async function publishProduct(shop, token, gidOrNumericId) {
+  try {
+    const publicationId = await getOnlineStorePublicationId(shop, token);
+    if (!publicationId) return false;
+    const d = await shopGraphQL(
+      shop,
+      token,
+      `mutation publishablePublish($id: ID!, $input: [PublicationInput!]!) {
+        publishablePublish(id: $id, input: $input) {
+          userErrors { field message }
+        }
+      }`,
+      { id: productGid(gidOrNumericId), input: [{ publicationId }] }
+    );
+    const errs = d?.data?.publishablePublish?.userErrors;
+    if (d?.errors || (errs && errs.length)) {
+      console.error(`Could not publish product ${gidOrNumericId}:`, JSON.stringify(d?.errors || errs).slice(0, 300));
+      return false;
+    }
+    return true;
+  } catch (e) {
+    console.error(`Could not publish product ${gidOrNumericId}:`, e);
+    return false;
+  }
 }
 
 // Shows what actually exists in the shop: open /api/shop-products?shop=your-shop.myshopify.com
@@ -695,12 +737,16 @@ app.get('/api/shop-products', requireUser, async (req, res) => {
     if (!validShop(shop)) return res.status(400).json({ error: 'Invalid shop.' });
     const token = await db.getShopTokenForUser(shop, req.user.id);
     if (!token) return res.status(403).json({ error: 'That store is not connected to your account.' });
-    const r = await fetch(
-      `https://${shop}/admin/api/2024-10/products.json?limit=50&fields=id,title,status,published_at,created_at`,
-      { headers: { 'X-Shopify-Access-Token': token } }
+    const d = await shopGraphQL(
+      shop,
+      token,
+      `{ products(first: 50) { nodes { id title status publishedAt createdAt } } }`
     );
-    const data = await r.json();
-    res.json({ httpStatus: r.status, products: data.products || [], raw: data.products ? undefined : data });
+    const nodes = d?.data?.products?.nodes;
+    const products = (nodes || []).map((n) => ({
+      id: n.id, title: n.title, status: n.status, published_at: n.publishedAt, created_at: n.createdAt,
+    }));
+    res.json({ products, raw: nodes ? undefined : d });
   } catch (err) {
     res.status(500).json({ error: String(err) });
   }
@@ -711,19 +757,26 @@ app.get('/api/shop-products', requireUser, async (req, res) => {
 // This adds a product to the default "Home page" collection (handle: frontpage).
 async function addToHomepageCollection(shop, token, gidOrNumericId) {
   try {
-    const base = `https://${shop}/admin/api/2024-10`;
-    const headers = { 'Content-Type': 'application/json', 'X-Shopify-Access-Token': token };
-    const cr = await fetch(`${base}/custom_collections.json?handle=frontpage&fields=id`, { headers });
-    const cj = await cr.json();
-    const collectionId = cj.custom_collections?.[0]?.id;
+    const found = await shopGraphQL(
+      shop,
+      token,
+      `query($q: String!) { collections(first: 1, query: $q) { nodes { id } } }`,
+      { q: 'handle:frontpage' }
+    );
+    const collectionId = found?.data?.collections?.nodes?.[0]?.id;
     if (!collectionId) return false;
-    const productId = Number(String(gidOrNumericId).split('/').pop());
-    const r = await fetch(`${base}/collects.json`, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({ collect: { product_id: productId, collection_id: collectionId } }),
-    });
-    return r.ok;
+    const d = await shopGraphQL(
+      shop,
+      token,
+      `mutation collectionAddProducts($id: ID!, $productIds: [ID!]!) {
+        collectionAddProducts(id: $id, productIds: $productIds) {
+          userErrors { field message }
+        }
+      }`,
+      { id: collectionId, productIds: [productGid(gidOrNumericId)] }
+    );
+    const errs = d?.data?.collectionAddProducts?.userErrors;
+    return !d?.errors && !(errs && errs.length);
   } catch (e) {
     console.error('Could not add to Home page collection:', e);
     return false;
@@ -837,12 +890,18 @@ app.post('/api/publish', requireUser, requireCjKey, async (req, res) => {
       const imageSrc = cj?.image || p.cjImage;
       if (product?.id && imageSrc) {
         try {
-          const numericId = String(product.id).split('/').pop();
-          await fetch(`https://${shop}/admin/api/${apiVersion}/products/${numericId}/images.json`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'X-Shopify-Access-Token': token },
-            body: JSON.stringify({ image: { src: imageSrc } }),
-          });
+          const img = await shopifyGraphQL(
+            `mutation productCreateMedia($productId: ID!, $media: [CreateMediaInput!]!) {
+              productCreateMedia(productId: $productId, media: $media) {
+                mediaUserErrors { field message }
+              }
+            }`,
+            { productId: product.id, media: [{ originalSource: imageSrc, mediaContentType: 'IMAGE' }] }
+          );
+          const imgErrors = img.data?.productCreateMedia?.mediaUserErrors;
+          if (img.errors || (imgErrors && imgErrors.length)) {
+            console.error('Could not add product image:', JSON.stringify(img.errors || imgErrors).slice(0, 300));
+          }
         } catch (e) {
           console.error('Could not add product image:', e);
         }
@@ -852,7 +911,7 @@ app.post('/api/publish', requireUser, requireCjKey, async (req, res) => {
       // storefront — it has to be explicitly marked published.
       let publishedOk = false;
       if (product?.id) {
-        publishedOk = await publishProductRest(shop, token, product.id);
+        publishedOk = await publishProduct(shop, token, product.id);
         await addToHomepageCollection(shop, token, product.id);
       }
 
@@ -901,29 +960,26 @@ app.get('/api/publish-existing', requireUser, async (req, res) => {
     if (!token) return res.status(403).json({ error: 'That store is not connected to your account.' });
 
     let count = 0;
-    let pageInfo = '';
+    let cursor = null;
     let hasNext = true;
     while (hasNext) {
-      const r = await fetch(
-        `https://${shop}/admin/api/2024-10/products.json?limit=50&fields=id${pageInfo}`,
-        { headers: { 'X-Shopify-Access-Token': token } }
+      const d = await shopGraphQL(
+        shop,
+        token,
+        `query($after: String) { products(first: 50, after: $after) { pageInfo { hasNextPage endCursor } nodes { id } } }`,
+        { after: cursor }
       );
-      const data = await r.json();
-      const products = data.products || [];
-      for (const p of products) {
-        await publishProductRest(shop, token, p.id);
+      const page = d?.data?.products;
+      if (!page) {
+        console.error('Could not list products:', JSON.stringify(d?.errors || d).slice(0, 300));
+        break;
+      }
+      for (const p of page.nodes) {
+        await publishProduct(shop, token, p.id);
         count++;
       }
-
-      // REST pagination: Shopify returns a Link header with a page_info
-      // cursor when there's more to fetch.
-      const link = r.headers.get('link') || '';
-      const match = link.match(/<[^>]*page_info=([^&>]+)[^>]*>;\s*rel="next"/);
-      if (match) {
-        pageInfo = `&page_info=${match[1]}`;
-      } else {
-        hasNext = false;
-      }
+      hasNext = page.pageInfo.hasNextPage;
+      cursor = page.pageInfo.endCursor;
     }
 
     res.json({ ok: true, publishedCount: count });
