@@ -460,24 +460,40 @@ module.exports = function registerCj(app) {
       const token = await db.getShopTokenForUser(shop, req.user.id);
       if (!token) return res.status(404).json({ error: 'That store is not connected to your account.' });
 
-      const base = `https://${shop}/admin/api/2024-10`;
-      const headers = { 'Content-Type': 'application/json', 'X-Shopify-Access-Token': token };
+      // Uses the GraphQL Admin API (Shopify requires GraphQL only for public apps).
+      const gql = async (query, variables) => {
+        const r = await fetch(`https://${shop}/admin/api/2024-10/graphql.json`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-Shopify-Access-Token': token },
+          body: JSON.stringify({ query, variables }),
+        });
+        return r.json();
+      };
 
-      const pr = await fetch(`${base}/products.json?limit=250&fields=id,title,variants`, { headers });
-      const pj = await pr.json();
-      const match = (pj.products || []).find((p) => p.title.toLowerCase().includes(title));
+      const pj = await gql(
+        `{ products(first: 250) { nodes { id title variants(first: 100) { nodes { id } } } } }`
+      );
+      const match = (pj?.data?.products?.nodes || []).find((p) => p.title.toLowerCase().includes(title));
       if (!match) return res.status(404).json({ error: 'No Shopify product title contains that text.' });
 
-      const updated = [];
-      for (const v of match.variants || []) {
-        const ur = await fetch(`${base}/variants/${v.id}.json`, {
-          method: 'PUT',
-          headers,
-          body: JSON.stringify({ variant: { id: v.id, sku: vid } }),
-        });
-        const uj = await ur.json();
-        updated.push({ variantId: v.id, ok: ur.ok, sku: uj.variant?.sku, error: uj.errors || null });
-      }
+      const variantIds = (match.variants?.nodes || []).map((v) => v.id);
+      const up = await gql(
+        `mutation productVariantsBulkUpdate($productId: ID!, $variants: [ProductVariantsBulkInput!]!) {
+          productVariantsBulkUpdate(productId: $productId, variants: $variants) {
+            productVariants { id inventoryItem { sku } }
+            userErrors { field message }
+          }
+        }`,
+        { productId: match.id, variants: variantIds.map((id) => ({ id, inventoryItem: { sku: vid } })) }
+      );
+      const result = up?.data?.productVariantsBulkUpdate;
+      const errors = up?.errors || (result?.userErrors?.length ? result.userErrors : null);
+      const updated = variantIds.map((id) => ({
+        variantId: id,
+        ok: !errors,
+        sku: result?.productVariants?.find((v) => v.id === id)?.inventoryItem?.sku,
+        error: errors,
+      }));
       res.json({ product: match.title, updated });
     } catch (e) {
       res.status(500).json({ error: String(e.message || e) });
