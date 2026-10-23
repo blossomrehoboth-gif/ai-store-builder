@@ -16,6 +16,11 @@ const path = require('path');
 const crypto = require('crypto');
 require('dotenv').config();
 require('./cjproxy'); // sends CJ requests through a private-IP proxy, only if CJ_PROXY_URL is set
+try {
+  require('./retention').startRetention(); // erases shopper details from orders older than RETENTION_DAYS (default 180)
+} catch (e) {
+  console.error('retention.js could not start (the app keeps running):', e);
+}
 const { renderTemplate } = require('./templater');
 const db = require('./db');
 const auth = require('./auth');

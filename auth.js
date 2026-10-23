@@ -154,7 +154,7 @@ async function requireCjKey(req, res, next) {
 // Pages that need a login (the API routes protect themselves).
 // Every page needs a login EXCEPT the ones listed as public below.
 // This also covers /research.html (Winners) and any page added later.
-const PUBLIC_PAGES = ['/login', '/login.html', '/privacy.html'];
+const PUBLIC_PAGES = ['/login', '/login.html', '/privacy.html', '/terms.html'];
 function gatePages(req, res, next) {
   const p = (req.path.toLowerCase().replace(/\/+$/, '')) || '/';
   const isPage = p === '/' || p.endsWith('.html') || ['/orders', '/account', '/dashboard', '/research'].includes(p);
