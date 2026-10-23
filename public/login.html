@@ -39,6 +39,8 @@
     font-weight: 600;
     font-size: 16px;
   }
+  .legal { margin: 16px 0 0; font-size: 13px; }
+  .legal a { color: #F2EDE3; }
   .error {
     display: none;
     margin-bottom: 16px;
@@ -58,6 +60,7 @@
     <p>Sign in to build and manage your store.</p>
     <div class="error" id="err"></div>
     <a class="btn" id="gbtn" href="/auth/google">Sign in with Google</a>
+    <p class="legal">By signing in you agree to our <a href="/terms.html">Terms</a> and <a href="/privacy.html">Privacy Policy</a>.</p>
   </div>
 <script>
   var params = new URLSearchParams(window.location.search);
